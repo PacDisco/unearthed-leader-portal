@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your trips · Unearthed Portal</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background: #f9f8f2;
+      color: #231f20;
+    }
+    header {
+      position: relative;
+      padding: 22px 24px;
+      background: #2d6b74;
+      color: white;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+    }
+    header .who {
+      margin-left: auto;
+      font-size: 12px;
+      letter-spacing: 0.6px;
+      opacity: 0.85;
+    }
+    header button.logout {
+      margin-left: 16px;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.4);
+      color: white;
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      padding: 7px 14px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    header button.logout:hover { background: rgba(255,255,255,0.12); }
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+    .intro {
+      color: #666;
+      font-size: 13px;
+      line-height: 1.55;
+      margin-bottom: 22px;
+    }
+    .portal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .portal-card {
+      background: white;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #59a1aa;
+      padding: 18px 20px 20px;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      display: block;
+    }
+    .portal-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.06);
+    }
+    .portal-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0 0 6px;
+      letter-spacing: 0.3px;
+      line-height: 1.3;
+    }
+    .portal-card-destination {
+      font-size: 12px;
+      color: #666;
+      margin: 0 0 10px;
+    }
+    .portal-card-price {
+      font-size: 11px;
+      color: #999;
+      letter-spacing: 0.6px;
+    }
+    .portal-card-cta {
+      margin-top: 14px;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #2d6b74;
+    }
+    .empty, .loading, .error {
+      color: #999;
+      font-size: 13px;
+      letter-spacing: 0.4px;
+      padding: 40px 0;
+      text-align: center;
+    }
+    .error { color: #c0392b; }
+    @media (max-width: 600px) {
+      header { flex-wrap: wrap; }
+      header .who { width: 100%; margin-left: 0; margin-top: 4px; opacity: 0.7; }
+      header button.logout { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>YOUR TRIPS</h1>
+  <div class="who" id="whoami"></div>
+  <button class="logout" type="button" onclick="logout()">LOG OUT</button>
+</header>
+<main>
+  <p class="intro">You\'re associated with more than one program. Pick a trip to view its portal. You can switch back to this list any time from the header on the trip page.</p>
+  <div id="picker" class="loading">LOADING TRIPS…</div>
+</main>
+<script>
+  const email = sessionStorage.getItem("portalEmail");
+  const firstName = sessionStorage.getItem("firstName") || "";
+
+  // Hard guard: anyone landing here must be logged in.
+  if (!email) {
+    window.location.href = "/login.html";
+  }
+  // If the user is actually an admin, push them to the admin picker
+  // instead — that's where they belong, with all-trips access + the
+  // invite-admin button.
+  if (sessionStorage.getItem("adminRole")) {
+    window.location.href = "/admin.html";
+  }
+
+  document.getElementById("whoami").textContent =
+    [firstName, email].filter(Boolean).join(" · ");
+
+  function logout() {
+    sessionStorage.removeItem("portalEmail");
+    sessionStorage.removeItem("adminRole");
+    sessionStorage.removeItem("firstName");
+    sessionStorage.removeItem("selectedPortalId");
+    window.location.href = "/login.html";
+  }
+
+  function attrEsc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function pickPortal(id) {
+    try { sessionStorage.setItem("selectedPortalId", String(id)); } catch (_) {}
+    window.location.href = "/index.html";
+  }
+
+  function render(portals) {
+    const c = document.getElementById("picker");
+    c.className = "";
+    if (!portals.length) {
+      c.innerHTML = `<div class="empty">No trips found for this account. If you think this is wrong, contact info@unearthededucation.org.</div>`;
+      return;
+    }
+    c.innerHTML = `<div class="portal-grid">${portals.map(p => {
+      const price = p.price ? `PRICE: $${parseFloat(p.price).toLocaleString()}` : "";
+      return `<a class="portal-card" href="javascript:void(0);" onclick="pickPortal('${attrEsc(p.id)}')">
+        <h3 class="portal-card-title">${attrEsc(p.title || "(untitled)")}</h3>
+        ${p.destination ? `<div class="portal-card-destination">${attrEsc(p.destination)}</div>` : ""}
+        ${price ? `<div class="portal-card-price">${attrEsc(price)}</div>` : ""}
+        <div class="portal-card-cta">VIEW &rsaquo;</div>
+      </a>`;
+    }).join("")}</div>`;
+  }
+
+  async function init() {
+    try {
+      // Call portal.js without ?picked= so it returns the requirePicker
+      // response when the user has 2+ portals. If they have only one,
+      // there\'s nothing to pick — bounce them straight to /index.html.
+      const res = await fetch(`/.netlify/functions/portal?email=${encodeURIComponent(email)}`);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        const c = document.getElementById("picker");
+        c.className = "error";
+        c.textContent = "Could not load trips: " + (data.error || ("HTTP " + res.status));
+        return;
+      }
+      if (data.requirePicker && Array.isArray(data.portals)) {
+        render(data.portals);
+        return;
+      }
+      // Single portal — no need to pick. Drop selectedPortalId and let
+      // index.html load the user\'s only trip normally.
+      try { sessionStorage.removeItem("selectedPortalId"); } catch (_) {}
+      window.location.href = "/index.html";
+    } catch (err) {
+      const c = document.getElementById("picker");
+      c.className = "error";
+      c.textContent = "Network error: " + (err.message || String(err));
+    }
+  }
+  init();
+</script>
+</body>
+</html>

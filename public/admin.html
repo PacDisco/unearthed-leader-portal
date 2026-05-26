@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin · Unearthed Portal</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background: #f9f8f2;
+      color: #231f20;
+    }
+    header {
+      position: relative;
+      padding: 22px 24px;
+      background: #2d6b74;
+      color: white;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+    }
+    header .who {
+      margin-left: auto;
+      font-size: 12px;
+      letter-spacing: 0.6px;
+      opacity: 0.85;
+    }
+    header .actions {
+      display: flex;
+      gap: 12px;
+      margin-left: 16px;
+    }
+    header button, header a.btn {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.4);
+      color: white;
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      padding: 7px 14px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.2s ease;
+    }
+    header button:hover, header a.btn:hover {
+      background: rgba(255,255,255,0.12);
+    }
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+    .picker-section + .picker-section {
+      margin-top: 36px;
+    }
+    .picker-section-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 14px;
+    }
+    .portal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .portal-card {
+      background: white;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #59a1aa;
+      padding: 18px 20px 20px;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      display: block;
+    }
+    .portal-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.06);
+    }
+    .portal-card.is-other {
+      border-top-color: #d6a380;
+      opacity: 0.94;
+    }
+    .portal-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0 0 6px;
+      letter-spacing: 0.3px;
+      line-height: 1.3;
+    }
+    .portal-card-destination {
+      font-size: 12px;
+      color: #666;
+      margin: 0 0 10px;
+    }
+    .portal-card-price {
+      font-size: 11px;
+      color: #999;
+      letter-spacing: 0.6px;
+    }
+    .portal-card-cta {
+      margin-top: 14px;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #2d6b74;
+    }
+    .empty {
+      color: #999;
+      font-size: 13px;
+      letter-spacing: 0.4px;
+      padding: 16px 0;
+    }
+    .loading {
+      text-align: center;
+      color: #999;
+      letter-spacing: 1.5px;
+      font-size: 13px;
+      padding: 60px 20px;
+    }
+    .error {
+      color: #c0392b;
+      font-size: 13px;
+      padding: 16px 0;
+    }
+    @media (max-width: 600px) {
+      header { flex-wrap: wrap; }
+      header .who { width: 100%; margin-left: 0; margin-top: 4px; opacity: 0.7; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>UNEARTHED · ADMIN</h1>
+  <div class="actions">
+    <a class="btn" href="/admin-invite.html">INVITE ADMIN</a>
+    <button type="button" onclick="logout()">LOG OUT</button>
+  </div>
+  <div class="who" id="whoami"></div>
+</header>
+<main>
+  <div id="picker" class="loading">LOADING TRIPS…</div>
+</main>
+<script>
+  const email = sessionStorage.getItem("portalEmail");
+  const adminRole = sessionStorage.getItem("adminRole");
+  const firstName = sessionStorage.getItem("firstName") || "";
+
+  // Hard guard: only admins should be on this page. Anyone else gets
+  // bounced to the login screen — sessionStorage may have an email but
+  // no admin_role if a regular parent somehow navigated here.
+  if (!email || !adminRole) {
+    window.location.href = "/login.html";
+  }
+
+  document.getElementById("whoami").textContent =
+    `${firstName ? firstName + " · " : ""}${adminRole || ""} · ${email || ""}`;
+
+  function logout() {
+    sessionStorage.removeItem("portalEmail");
+    sessionStorage.removeItem("adminRole");
+    sessionStorage.removeItem("firstName");
+    window.location.href = "/login.html";
+  }
+
+  function attrEsc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function renderPortals(portals) {
+    const container = document.getElementById("picker");
+    if (!portals.length) {
+      container.className = "";
+      container.innerHTML = `<div class="empty">No portals exist yet. Create a Portal record in HubSpot to get started.</div>`;
+      return;
+    }
+    const yours  = portals.filter(p => p.associated);
+    const others = portals.filter(p => !p.associated);
+
+    function card(p) {
+      const cls = p.associated ? "portal-card" : "portal-card is-other";
+      const price = p.price
+        ? `PRICE: $${parseFloat(p.price).toLocaleString()}`
+        : "";
+      return `<a class="${cls}" href="/index.html?portalId=${encodeURIComponent(p.id)}&as_admin=1">
+        <h3 class="portal-card-title">${attrEsc(p.title || "(untitled)")}</h3>
+        ${p.destination ? `<div class="portal-card-destination">${attrEsc(p.destination)}</div>` : ""}
+        ${price ? `<div class="portal-card-price">${attrEsc(price)}</div>` : ""}
+        <div class="portal-card-cta">VIEW &rsaquo;</div>
+      </a>`;
+    }
+
+    let html = "";
+    if (yours.length) {
+      html += `<section class="picker-section">
+        <div class="picker-section-label">YOUR TRIPS</div>
+        <div class="portal-grid">${yours.map(card).join("")}</div>
+      </section>`;
+    }
+    if (others.length) {
+      html += `<section class="picker-section">
+        <div class="picker-section-label">${yours.length ? "OTHER TRIPS" : "ALL TRIPS"}</div>
+        <div class="portal-grid">${others.map(card).join("")}</div>
+      </section>`;
+    }
+
+    container.className = "";
+    container.innerHTML = html;
+  }
+
+  async function init() {
+    try {
+      const res = await fetch(`/.netlify/functions/get-portals?email=${encodeURIComponent(email)}`);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        const c = document.getElementById("picker");
+        c.className = "";
+        c.innerHTML = `<div class="error">Could not load portals: ${attrEsc(data.error || ("HTTP " + res.status))}</div>`;
+        return;
+      }
+      renderPortals(Array.isArray(data.portals) ? data.portals : []);
+    } catch (err) {
+      const c = document.getElementById("picker");
+      c.className = "";
+      c.innerHTML = `<div class="error">Network error: ${attrEsc(err.message || String(err))}</div>`;
+    }
+  }
+  init();
+</script>
+</body>
+</html>

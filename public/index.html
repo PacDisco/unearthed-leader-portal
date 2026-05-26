@@ -1,0 +1,3940 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="theme-color" content="#2d6b74">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Unearthed">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="shortcut icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Unearthed Education" />
+  <link rel="manifest" href="/site.webmanifest" />
+
+  <title>Unearthed Education Portal</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background: #f9f8f2;
+      color: #231f20;
+    }
+
+    header {
+      position: relative;
+      text-align: center;
+      padding: 30px 20px 24px;
+      background: #2d6b74;
+      color: white;
+    }
+
+    header img {
+      height: 60px;
+      margin-bottom: 16px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    header h1 {
+      font-size: 22px;
+      letter-spacing: 2px;
+      margin: 0;
+    }
+
+    header p {
+      font-size: 13px;
+      opacity: 0.7;
+      margin-top: 8px;
+      margin-bottom: 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      padding: 24px;
+      max-width: 1000px;
+      margin: auto;
+    }
+
+    .tile {
+      background: white;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #e2decf;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      font-weight: 500;
+    }
+
+    .tile:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+    }
+
+    .tile.active-teal  { border-top: 4px solid #59a1aa; }
+    .tile.active-blue  { border-top: 4px solid #aed1db; }
+    .tile.active-olive { border-top: 4px solid #a9a66e; }
+    .tile.active-sand  { border-top: 4px solid #d6a380; }
+
+    .tile.active {
+      border-top-width: 4px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    /* MESSAGE BOARD */
+    .tile {
+      position: relative;
+    }
+
+    .tile-badge {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: #c0392b;
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 3px 8px;
+      border-radius: 10px;
+      line-height: 1;
+    }
+
+    .message-board-alert {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #fdf0ef;
+      border: 1px solid #f1c2bd;
+      border-left: 4px solid #c0392b;
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #231f20;
+      transition: opacity 0.2s ease;
+    }
+
+    .message-board-alert:hover {
+      opacity: 0.85;
+    }
+
+    .message-board-alert .mb-icon {
+      font-size: 18px;
+    }
+
+    .message-board-alert strong {
+      color: #c0392b;
+    }
+
+    .message-board-alert .mb-arrow {
+      margin-left: auto;
+      color: #c0392b;
+      font-weight: 600;
+      letter-spacing: 1px;
+      font-size: 11px;
+    }
+
+    .message-board-content {
+      line-height: 1.7;
+    }
+
+    .message-board-meta {
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      color: #999;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+    }
+
+    .message-board-empty {
+      color: #999;
+      font-size: 13px;
+      text-align: center;
+      padding: 30px 10px;
+      letter-spacing: 0.5px;
+    }
+    /* "Enable notifications" pill above the message board content. */
+    .push-prompt {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      background: #ecf6f7;
+      border: 1px solid #c9e1e3;
+      border-left: 4px solid #59a1aa;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #2d6b74;
+    }
+    .push-prompt-text { flex: 1 1 220px; }
+    .push-prompt-btn {
+      padding: 9px 16px;
+      background: #2d6b74;
+      color: white;
+      border: none;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+    .push-prompt-btn:hover { opacity: 0.88; }
+    .push-prompt-btn:disabled { opacity: 0.55; cursor: wait; }
+    .push-prompt--ok {
+      background: #e8f4ee;
+      border-color: #c4e0cf;
+      border-left-color: #5b8a73;
+      color: #2d6b3f;
+    }
+    .push-prompt--denied {
+      background: #fdf4ec;
+      border-color: #f3d8b4;
+      border-left-color: #d6a380;
+      color: #8a5a2a;
+    }
+
+    #content {
+      max-width: 900px;
+      margin: 20px auto 100px;
+      padding: 40px;
+      background: white;
+      border: 1px solid #e2decf;
+      line-height: 1.7;
+      transition: opacity 0.2s ease;
+    }
+
+    iframe {
+      display: block;
+      border: none;
+      margin-top: 30px;
+      width: 100% !important;
+      min-height: 400px;
+    }
+
+    a {
+      color: #59a1aa;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .portal-btn {
+      display: inline-block !important;
+      margin: 8px 8px 8px 0;
+      padding: 16px 32px !important;
+      border-radius: 6px;
+      color: white !important;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none !important;
+      letter-spacing: 0.5px;
+      transition: opacity 0.2s ease;
+      cursor: pointer;
+    }
+
+    .portal-btn:hover {
+      opacity: 0.85;
+      text-decoration: none !important;
+    }
+
+    /* INSTALL SHEET */
+    #installSheet {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: white;
+      border-top: 3px solid #59a1aa;
+      padding: 24px 24px 36px;
+      box-shadow: 0 -8px 30px rgba(0,0,0,0.12);
+      z-index: 1000;
+      transform: translateY(100%);
+      transition: transform 0.3s ease;
+    }
+
+    #installSheet.visible {
+      transform: translateY(0);
+    }
+
+    #installSheet h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+
+    #installSheet p {
+      margin: 0 0 20px;
+      font-size: 13px;
+      color: #666;
+      line-height: 1.6;
+    }
+
+    #installSheet .sheet-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    #installSheet .sheet-btn {
+      flex: 1;
+      padding: 14px;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.2s ease;
+    }
+
+    #installSheet .sheet-btn:hover { opacity: 0.85; }
+
+    #installSheet .sheet-btn.primary {
+      background: #2d6b74;
+      color: white;
+    }
+
+    #installSheet .sheet-btn.ghost {
+      background: transparent;
+      color: #999;
+      border: 1px solid #e2decf;
+      flex: 0 0 auto;
+      padding: 14px 20px;
+    }
+
+    /* Desktop QR card — sits in the bottom-right corner so a parent on
+       a desktop browser can scan it with their phone to open the portal
+       there and add it to home screen. Hidden on narrow viewports
+       since mobile users have the install sheet instead. */
+    #qrCard {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      width: 180px;
+      background: white;
+      border: 1px solid #e2decf;
+      border-top: 3px solid #59a1aa;
+      padding: 14px 14px 12px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+      z-index: 999;
+      font-family: 'Inter', sans-serif;
+    }
+    #qrCard .qr-title {
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 8px;
+    }
+    #qrCard .qr-code {
+      width: 152px;
+      height: 152px;
+      display: block;
+      margin: 0 auto 8px;
+    }
+    /* The qrcode-generator lib emits a <table> (or img). Keep both clean. */
+    #qrCard .qr-code table {
+      border-collapse: collapse;
+      margin: 0 auto;
+    }
+    #qrCard .qr-code table td {
+      width: 4px; height: 4px; padding: 0; border: 0;
+    }
+    #qrCard .qr-caption {
+      font-size: 11px;
+      color: #444;
+      line-height: 1.4;
+      text-align: center;
+    }
+    #qrCard .qr-close {
+      position: absolute;
+      top: 4px;
+      right: 6px;
+      width: 22px;
+      height: 22px;
+      background: transparent;
+      border: none;
+      color: #999;
+      font-size: 16px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    #qrCard .qr-close:hover { color: #2d6b74; }
+
+    /* Hide the QR on touch / narrow devices — install sheet covers them. */
+    @media (max-width: 900px), (pointer: coarse) {
+      #qrCard { display: none !important; }
+    }
+
+    /* STUDENT CARDS */
+    .student-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .student-card {
+      background: #f9f8f2;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #59a1aa;
+      padding: 20px;
+    }
+
+    .student-card h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .student-card-photo {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      display: block;
+      margin: 0 auto 14px;
+      background: #e2decf;
+      border: 1px solid #e2decf;
+    }
+
+    .student-card .contact-info {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 16px;
+      line-height: 1.8;
+    }
+
+    .student-card .contact-info a {
+      color: #59a1aa;
+    }
+
+    .student-card .paid-badge {
+      display: inline-block;
+      background: #2d6b74;
+      color: white;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      padding: 4px 10px;
+      margin-bottom: 12px;
+    }
+
+    .student-card .payments-list {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 16px;
+    }
+
+    .student-card .payments-list span {
+      display: inline-block;
+      margin-right: 8px;
+      margin-bottom: 4px;
+      background: #e8f4f5;
+      color: #2d6b74;
+      padding: 2px 8px;
+      font-size: 11px;
+    }
+
+    /* TEACHERS-TAB-ONLY school fields on the student card.
+       Sits above the parents section. Container draws the same rule the
+       parent section uses so the whole card stays visually consistent. */
+    .student-card .student-school-fields {
+      border-top: 1px solid #e2decf;
+      padding-top: 12px;
+      margin-top: 12px;
+      margin-bottom: 4px;
+    }
+
+    .student-card .student-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .student-card .student-status-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+    }
+
+    .student-card .student-status-value {
+      display: inline-block;
+      padding: 3px 10px;
+      background: #ece6d6;
+      color: #231f20;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      border-radius: 3px;
+    }
+    /* Per-value status chip colors. Add another rule here when you want a
+       new value to surface in a different color — class name is the
+       lowercased, hyphenated status string. Anything not listed falls
+       back to the neutral tan above. */
+    .student-card .student-status-value--cleared {
+      background: #d4ede0;
+      color: #2d6b3f;
+    }
+    .student-card .student-status-value--discovery {
+      background: #fde0c9;
+      color: #b85a2a;
+    }
+
+    .student-card .student-notes-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 4px;
+    }
+
+    .student-card .student-notes-value {
+      font-size: 12px;
+      color: #444;
+      line-height: 1.55;
+      white-space: normal;
+    }
+
+    .student-card .parent-section {
+      border-top: 1px solid #e2decf;
+      padding-top: 12px;
+      margin-top: 12px;
+    }
+
+    .student-card .parent-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 8px;
+    }
+
+    .student-card .parent-item {
+      font-size: 12px;
+      color: #444;
+      margin-bottom: 8px;
+      line-height: 1.8;
+    }
+
+    .student-card .parent-item a {
+      color: #59a1aa;
+    }
+
+    /* Trip-leader expandable application details */
+    .student-expand-btn {
+      display: block;
+      width: 100%;
+      margin-top: 12px;
+      padding: 10px 14px;
+      background: transparent;
+      border: 1px solid #5b7f9e;
+      color: #5b7f9e;
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .student-expand-btn:hover {
+      background: #5b7f9e;
+      color: white;
+    }
+
+    .student-card-details {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid #e2decf;
+    }
+
+    .application-detail-empty {
+      color: #999;
+      font-size: 12px;
+      letter-spacing: 0.4px;
+      padding: 8px 0;
+    }
+
+    .application-detail-meta {
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: #999;
+      margin-bottom: 12px;
+    }
+
+    .application-field {
+      padding: 8px 0;
+      border-bottom: 1px solid #f0ede6;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .application-field:last-child { border-bottom: none; }
+
+    .application-field-label {
+      color: #666;
+      font-size: 11px;
+      letter-spacing: 0.3px;
+      margin-bottom: 3px;
+    }
+
+    .application-field-value {
+      color: #231f20;
+      font-weight: 500;
+      word-break: break-word;
+    }
+
+    .application-field-value.is-yes {
+      color: #c0392b;
+      font-weight: 600;
+    }
+
+    .application-field-value.is-no {
+      color: #999;
+      font-weight: 400;
+    }
+
+    .application-field-file {
+      display: inline-block;
+      padding: 5px 12px;
+      background: #5b7f9e;
+      color: white !important;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      border-radius: 3px;
+      text-decoration: none !important;
+      margin-right: 4px;
+    }
+
+    .application-field-file:hover { opacity: 0.85; }
+
+    /* Application-info modal (teacher-tab popup) */
+    .app-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .app-modal[hidden] { display: none; }
+
+    .app-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(35, 31, 32, 0.55);
+      backdrop-filter: blur(2px);
+    }
+
+    .app-modal-content {
+      position: relative;
+      background: white;
+      border: 1px solid #e2decf;
+      width: 100%;
+      max-width: 720px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+
+    .app-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid #e2decf;
+    }
+
+    .app-modal-header h2 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #2d6b74;
+      text-transform: uppercase;
+    }
+
+    .app-modal-header .app-modal-subject {
+      display: block;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: #231f20;
+      text-transform: none;
+      margin-top: 4px;
+    }
+
+    .app-modal-close {
+      background: transparent;
+      border: none;
+      color: #999;
+      font-size: 24px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 4px 10px;
+      transition: color 0.2s ease;
+    }
+
+    .app-modal-close:hover { color: #2d6b74; }
+
+    .app-modal-body {
+      padding: 18px 24px 24px;
+      overflow-y: auto;
+      flex: 1 1 auto;
+    }
+
+    .app-modal-meta {
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      color: #999;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    @media (max-width: 480px) {
+      .app-modal { padding: 0; }
+      .app-modal-content { max-height: 100vh; }
+    }
+
+    /* EXPEDITION CARDS */
+    .expedition-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 20px;
+      margin-top: 24px;
+    }
+
+    .expedition-card {
+      background: #f9f8f2;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #a9a66e;
+      padding: 20px;
+    }
+
+    .expedition-card.itinerary-card {
+      border-top-color: #e8694a;
+    }
+
+    .expedition-card h4 {
+      margin: 0 0 8px;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+    }
+
+    .expedition-card .event-date {
+      font-size: 15px;
+      font-weight: 600;
+      color: #231f20;
+      margin-bottom: 8px;
+    }
+
+    .expedition-card .event-info {
+      font-size: 13px;
+      color: #666;
+      line-height: 1.6;
+    }
+
+    /* Auto-linkified URLs inside expedition-card event-info (and any other
+       body copy that uses linkify()). Always underlined so they read as
+       hyperlinks. styleLinksAsButtons() ignores .inline-link, so these
+       are NOT promoted to portal-btn buttons. */
+    .inline-link,
+    .inline-link:link,
+    .inline-link:visited {
+      color: #59a1aa;
+      text-decoration: underline;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .inline-link:hover { text-decoration: underline; opacity: 0.85; }
+
+    .expedition-card .event-link {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 8px 16px;
+      background: #e8694a;
+      color: white !important;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-decoration: none !important;
+      border-radius: 4px;
+    }
+
+    .expedition-card .event-link:hover { opacity: 0.85; }
+
+    /* QUICK LINKS variant of the itinerary card — two stacked sections,
+       each with a small label + a button-like link beneath. */
+    .quick-links-card .quick-link-row + .quick-link-row {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid #f0ede6;
+    }
+    .quick-links-card .quick-link-row-label {
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 6px;
+    }
+    /* Match the existing event-link button styling for the new
+       button-as-link in the EDIT APPLICATION row. */
+    .quick-links-card .event-link--app {
+      background: #5b7f9e;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .quick-links-card .event-link--app:hover { opacity: 0.85; }
+    .quick-links-card .event-link--app:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+
+    /* Generic "Read more" clamp + toggle.
+       Any element with .readmore-content gets clipped to ~5 lines until
+       the user expands it. Add to any rendered block where the source
+       content can be unpredictably long. The matching toggle button is
+       inserted by applyReadMoreClamping() in JS — only when the content
+       actually overflows the clamp. */
+    .readmore-content {
+      max-height: 6.5em;
+      overflow: hidden;
+      transition: max-height 0.25s ease;
+    }
+    .readmore-content.is-expanded {
+      max-height: 1500px; /* effectively unbounded */
+    }
+    /* Applied by JS when content already fits — neutralises the clamp so
+       short blocks don't arbitrarily cut at the max-height. */
+    .readmore-content.readmore-no-clamp {
+      max-height: none;
+      overflow: visible;
+    }
+    .readmore-toggle {
+      margin-top: 8px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      color: #5b7f9e;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .readmore-toggle:hover { opacity: 0.7; }
+
+    /* Keep expedition cards roughly the same height regardless of how
+       much copy is in event-info, so the row reads as a tidy grid even
+       when one card has way more text than the others. The clamp + Read
+       More handles overflow above this minimum. */
+    .expedition-grid > .expedition-card {
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+    }
+    .expedition-card.expedition-card { /* keep specificity simple */ }
+
+    .tbc {
+      color: #bbb;
+      font-style: italic;
+    }
+
+    /* TEACHER CARDS */
+    .teacher-section {
+      margin-top: 32px;
+      border-top: 1px solid #e2decf;
+      padding-top: 24px;
+    }
+
+    .teacher-section-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 16px;
+    }
+
+    .teacher-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      align-items: start;
+    }
+
+    /* LEADER CARDS (school leader + expedition leader)
+       Both share identical layout so the SCHOOL CONTACTS row stays
+       visually uniform. The variant class only swaps the accent color. */
+    .leader-card {
+      background: #f9f8f2;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #aed1db;
+      padding: 18px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      /* Uniform-ish height: cards stretch to a fixed content area, with
+         overflowing bios clamped + toggle. Auto height when expanded. */
+      min-height: 320px;
+    }
+    .leader-card.leader-card--expanded { min-height: 320px; }
+
+    .leader-card-photo {
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      object-fit: cover;
+      object-position: center top;
+      background: #ece6d6;
+      margin-bottom: 14px;
+      align-self: center;
+    }
+
+    /* Fallback styling for the avatar placeholder. The inline SVG fills
+       the full 96×96 circle (no padding) so the silhouette reads at
+       avatar size. If you swap LEADER_PHOTO_FALLBACK_URL to a custom
+       wordmark or non-square image, increase padding here. */
+    .leader-card-photo--fallback {
+      object-fit: cover;
+      object-position: center;
+      padding: 0;
+      box-sizing: border-box;
+      background: #ece6d6;
+    }
+
+    .leader-card-role {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #5b7f9e;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      align-self: flex-start;
+    }
+
+    .leader-card-name {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #231f20;
+    }
+
+    .leader-card-contact {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.8;
+    }
+
+    .leader-card-contact a {
+      color: #59a1aa;
+      text-decoration: none;
+    }
+
+    /* Bio block — clamped to ~5 lines by default. The wrapper sets the
+       max-height; the inner element holds the actual content so we can
+       compare scrollHeight vs. clientHeight for the overflow check. */
+    .leader-card-bio {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #444;
+      line-height: 1.55;
+      max-height: 6.5em;
+      overflow: hidden;
+      transition: max-height 0.2s ease;
+      width: 100%;
+    }
+
+    .leader-card--expanded .leader-card-bio {
+      max-height: none;
+    }
+
+    .leader-card-bio-inner > * { margin: 0 0 0.55em; }
+    .leader-card-bio-inner > *:last-child { margin-bottom: 0; }
+
+    .leader-card-readmore {
+      margin-top: 10px;
+      padding: 0;
+      background: none;
+      border: none;
+      color: #5b7f9e;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      align-self: flex-start;
+    }
+    .leader-card-readmore:hover { opacity: 0.7; }
+
+    /* Variant accents — picks up the existing palette so the two roles
+       still read as distinct at a glance. */
+    .leader-card--school-leader     { border-top-color: #aed1db; }
+    .leader-card--school-leader     .leader-card-role { color: #5b7f9e; }
+    .leader-card--expedition-leader { border-top-color: #d6a380; }
+    .leader-card--expedition-leader .leader-card-role { color: #d6a380; }
+    /* Admin variant — School Support Manager / Expedition Planning Manager. Distinct
+       teal accent so admins read as a separate role at a glance. */
+    .leader-card--admin             { border-top-color: #2d6b74; }
+    .leader-card--admin             .leader-card-role { color: #2d6b74; }
+
+    /* FLIGHTS & INSURANCE */
+    .flights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 20px;
+      margin-top: 24px;
+    }
+
+    .flight-card {
+      background: #f9f8f2;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #59a1aa;
+      padding: 20px;
+    }
+
+    .flight-card.return {
+      border-top-color: #aed1db;
+    }
+
+    .flight-card h4 {
+      margin: 0 0 8px;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+    }
+
+    .flight-card .flight-date {
+      font-size: 15px;
+      font-weight: 600;
+      color: #231f20;
+      margin-bottom: 6px;
+    }
+
+    .flight-card .flight-detail {
+      font-size: 13px;
+      color: #666;
+      line-height: 1.6;
+      margin-bottom: 4px;
+    }
+
+    .flight-link {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 8px 16px;
+      background: #59a1aa;
+      color: white !important;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-decoration: none !important;
+      border-radius: 4px;
+      margin-right: 8px;
+      transition: opacity 0.2s ease;
+    }
+
+    .flight-link:hover { opacity: 0.85; text-decoration: none !important; }
+
+    .insurance-section {
+      margin-top: 32px;
+      border-top: 1px solid #e2decf;
+      padding-top: 24px;
+    }
+
+    .insurance-section-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 16px;
+    }
+
+    /* PAYMENTS */
+    .payments-header {
+      margin-bottom: 24px;
+    }
+
+    .payment-btn {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #e8694a;
+      color: white !important;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-decoration: none !important;
+      border-radius: 4px;
+    }
+
+    .payment-btn:hover { opacity: 0.85; }
+
+    .payments-schedule {
+      margin-top: 24px;
+      border-top: 1px solid #e2decf;
+      padding-top: 24px;
+    }
+
+    .payments-schedule-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 16px;
+    }
+
+    .payment-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 0;
+      border-bottom: 1px solid #f0ede6;
+      gap: 20px;
+    }
+
+    .payment-row:last-child { border-bottom: none; }
+
+    .payment-row .payment-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      min-width: 100px;
+    }
+
+    .payment-row .payment-date {
+      font-size: 14px;
+      color: #231f20;
+      flex: 1;
+    }
+
+    .payment-row .payment-amount {
+      font-size: 16px;
+      font-weight: 600;
+      color: #2d6b74;
+      text-align: right;
+    }
+
+    .payment-row .payment-amount .payment-amount-link {
+      color: #2d6b74;
+      text-decoration: none;
+      border-bottom: 1px dashed rgba(45, 107, 116, 0.4);
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+
+    .payment-row .payment-amount .payment-amount-link:hover {
+      color: #e8694a;
+      border-bottom-color: #e8694a;
+      text-decoration: none;
+    }
+
+    .payment-row .payment-amount-note {
+      display: block;
+      margin-top: 2px;
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 0.4px;
+      color: #999;
+      text-align: right;
+    }
+
+    /* Two-button per-row layout. Card and Bank Transfer share layout
+       but use radically different fills + icons so they don't read as
+       a "pick the same thing twice" pair. Both are solid filled chips
+       with a method label + icon on top and a bigger money figure
+       below. Sized small (~70% of original) to sit comfortably in the
+       payment-row without dominating it. */
+    .payment-row .payment-amount-options {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+      min-width: 140px;
+    }
+    .payment-row .payment-amount .payment-amount-link.payment-amount-link--card,
+    .payment-row .payment-amount .payment-amount-link.payment-amount-link--debit {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      padding: 6px 10px;
+      border-radius: 5px;
+      border: 1.5px solid transparent;
+      line-height: 1.15;
+      text-decoration: none !important;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+      transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease;
+    }
+    .payment-row .payment-amount .payment-amount-link.payment-amount-link--card:hover,
+    .payment-row .payment-amount .payment-amount-link.payment-amount-link--debit:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.10);
+      text-decoration: none !important;
+    }
+
+    /* CARD = solid orange fill, white text. Reads as the primary CTA. */
+    .payment-row .payment-amount-link--card {
+      background: #e8694a;
+      color: #ffffff !important;
+      border-color: #e8694a;
+    }
+    .payment-row .payment-amount-link--card:hover {
+      background: #d4583a;
+      border-color: #d4583a;
+    }
+
+    /* BANK TRANSFER = white background with bold teal border + teal text.
+       Equally prominent but visually clearly the alternative. */
+    .payment-row .payment-amount-link--debit {
+      background: #ffffff;
+      color: #2d6b74 !important;
+      border-color: #2d6b74;
+    }
+    .payment-row .payment-amount-link--debit:hover {
+      background: #ecf6f7;
+      color: #1f4e54 !important;
+      border-color: #1f4e54;
+    }
+
+    .payment-row .payment-amount-headline {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 8px;
+      letter-spacing: 1.1px;
+      font-weight: 700;
+    }
+    .payment-row .payment-amount-icon {
+      flex: none;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .payment-row .payment-amount-method {
+      font-weight: 700;
+      letter-spacing: inherit;
+    }
+    .payment-row .payment-amount-money {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    /* Small "NZ ONLY" pill that lives inside the BANK TRANSFER button's
+       headline. Sized so it doesn't compete with the method label. */
+    .payment-row .payment-amount-badge {
+      display: inline-block;
+      margin-left: 4px;
+      padding: 1px 4px;
+      background: rgba(45, 107, 116, 0.12);
+      color: #2d6b74;
+      font-size: 7px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      vertical-align: middle;
+      line-height: 1.5;
+      white-space: nowrap;
+    }
+    /* "NO FEE" variant — green-tinted to read as a positive call-out
+       distinct from the teal "NZ ONLY" geographic-restriction badge. */
+    .payment-row .payment-amount-badge--good {
+      background: rgba(91, 138, 115, 0.15);
+      color: #3f6b5a;
+    }
+    /* On narrow screens, drop the min-width so the chips collapse to
+       full-width and stay readable. */
+    @media (max-width: 600px) {
+      .payment-row .payment-amount-options { min-width: 0; width: 100%; }
+    }
+
+
+    .payment-row.paid {
+      opacity: 0.92;
+    }
+
+    .payment-row.paid .payment-label {
+      color: #5b8a73;
+    }
+
+    .payment-row .paid-badge {
+      display: inline-block;
+      background: #5b8a73;
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      padding: 3px 8px;
+      border-radius: 2px;
+      vertical-align: 1px;
+    }
+
+    .payment-row .paid-badge::before {
+      content: "\2713  ";
+      font-weight: 700;
+    }
+
+    /* MANUALS / RESOURCES */
+    .manual-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      margin-top: 8px;
+    }
+
+    .manual-card {
+      background: #f9f8f2;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #5b7f9e;
+      padding: 22px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 130px;
+    }
+
+    .manual-card h4 {
+      margin: 0 0 16px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      color: #231f20;
+    }
+
+    .manual-card .manual-link {
+      display: inline-block;
+      align-self: flex-start;
+      padding: 10px 18px;
+      background: #5b7f9e;
+      color: white !important;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-decoration: none !important;
+      border-radius: 4px;
+      transition: opacity 0.2s ease;
+    }
+
+    .manual-card .manual-link:hover { opacity: 0.85; }
+
+    .manuals-empty {
+      color: #999;
+      font-size: 13px;
+      text-align: center;
+      padding: 30px 10px;
+      letter-spacing: 0.5px;
+    }
+
+    /* TRIP LEADER RESOURCE LINKS
+       Denser variant of .manual-card. There can be up to ~18 of these so
+       the cards are smaller and the grid auto-fills more aggressively. */
+    .tl-link-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin: 0 0 24px;
+    }
+
+    .tl-link-card {
+      background: #f9f8f2;
+      border: 1px solid #e2decf;
+      border-top: 3px solid #5b7f9e;
+      padding: 16px 16px 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 96px;
+    }
+
+    .tl-link-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      color: #231f20;
+      line-height: 1.3;
+    }
+
+    .tl-link-card .tl-link-btn {
+      display: inline-block;
+      align-self: flex-start;
+      padding: 7px 14px;
+      background: #5b7f9e;
+      color: white !important;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-decoration: none !important;
+      border-radius: 4px;
+      transition: opacity 0.2s ease;
+    }
+
+    .tl-link-card .tl-link-btn:hover { opacity: 0.85; }
+
+    /* DOCUMENT UPLOADS */
+    .docs-section-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 16px;
+    }
+
+    .docs-section + .docs-section {
+      margin-top: 32px;
+      border-top: 1px solid #e2decf;
+      padding-top: 24px;
+    }
+
+    .docs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+
+    .docs-card {
+      background: #f9f8f2;
+      border: 1px solid #e2decf;
+      border-top: 4px solid #a9a66e;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 130px;
+    }
+
+    .docs-card h4 {
+      margin: 0 0 6px;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+    }
+
+    .docs-card .docs-filename {
+      font-size: 13px;
+      color: #231f20;
+      word-break: break-all;
+      margin-bottom: 6px;
+      line-height: 1.4;
+    }
+
+    /* When the parent didn't provide a Document Name and the upload field's
+       own label was generic, the heading is dropped — make the filename
+       slightly bigger so the card still has a clear primary line. */
+    .docs-card--no-heading .docs-filename {
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    .docs-card .docs-date {
+      font-size: 11px;
+      color: #999;
+      margin-bottom: 12px;
+      letter-spacing: 0.4px;
+    }
+
+    .docs-card .docs-link {
+      display: inline-block;
+      align-self: flex-start;
+      padding: 8px 16px;
+      background: #a9a66e;
+      color: white !important;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-decoration: none !important;
+      border-radius: 4px;
+      transition: opacity 0.2s ease;
+    }
+
+    .docs-card .docs-link:hover { opacity: 0.85; }
+
+    .docs-empty {
+      color: #999;
+      font-size: 13px;
+      padding: 16px 0 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .docs-jotform-iframe {
+      width: 100%;
+      border: 1px solid #e2decf;
+      background: white;
+      /* Initial height — Jotform's embed handler adjusts this to fit the
+         rendered form once it loads, so the form never lives in a scrolling
+         box. The min-height keeps things from collapsing if the handler
+         hasn't fired yet (slow network, etc.). */
+      min-height: 539px;
+      display: block;
+    }
+
+    .docs-form-missing {
+      color: #999;
+      font-size: 13px;
+      text-align: center;
+      padding: 30px 10px;
+      letter-spacing: 0.5px;
+    }
+
+    @media (max-width: 768px) {
+      .student-grid { grid-template-columns: 1fr; }
+      .expedition-grid { grid-template-columns: 1fr; }
+      .teacher-grid { grid-template-columns: 1fr; }
+      .flights-grid { grid-template-columns: 1fr; }
+
+      .grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        padding: 16px;
+      }
+
+      .tile {
+        padding: 28px 12px;
+        font-size: 11px;
+        letter-spacing: 1px;
+      }
+
+      #content {
+        margin: 8px 12px 100px;
+        padding: 20px;
+      }
+
+      header {
+        padding: 70px 20px 20px;
+      }
+
+      header h1 {
+        font-size: 18px;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .payment-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+      }
+
+      .payment-row .payment-amount {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <img src="/Logo-Landscape-Beige.png" alt="Unearthed Education">
+  <h1 id="title">UNEARTHED</h1>
+  <p id="destination">STUDENT PORTAL</p>
+  <p id="programPrice" style="font-size:12px; opacity:0.6; margin-top:4px; margin-bottom:0; letter-spacing:1px;"></p>
+  <button onclick="logout()" style="position:absolute; right:20px; top:20px; background:transparent; border:1px solid rgba(255,255,255,0.4); color:white; padding:6px 14px; font-size:11px; letter-spacing:1px; cursor:pointer; font-family:'Inter',sans-serif;">LOGOUT</button>
+</header>
+
+<div class="grid">
+
+  <div class="tile" onclick="loadSection('trip_information_content')">
+    EXPEDITION OVERVIEW
+  </div>
+
+  <div id="messageBoardTile" class="tile" onclick="loadSection('message_board')">
+    MESSAGE BOARD
+    <span id="messageBoardBadge" class="tile-badge" style="display:none;">NEW</span>
+  </div>
+
+  <div class="tile" onclick="loadSection('destination_overview_content')">
+    FLIGHTS & INSURANCE
+  </div>
+
+  <div class="tile" onclick="loadSection('travel_information_content')">
+    PAYMENTS
+  </div>
+
+  <div class="tile" onclick="loadSection('general_information_content')">
+    MANUALS, HANDBOOKS AND RESOURCES
+  </div>
+
+  <div id="familyTile" class="tile" onclick="loadSection('family_information_content')">
+    DOCUMENT UPLOADS
+  </div>
+
+  <div id="faqsTile" class="tile" onclick="loadSection('faqs')">
+    FAQs
+  </div>
+
+  <!--
+    Leader tiles default to display:none. They are NEVER revealed until
+    applyVisibility() has confirmed (via the server's labels array) that
+    the logged-in user is a Trip Leader / Teacher AND is not also flagged
+    as a Student or Parent. This way a slow / failed labels fetch, or any
+    unexpected label-shape from HubSpot, fails CLOSED instead of flashing
+    leader-only content to students/parents.
+  -->
+  <div id="tripLeaderTile" class="tile" style="display: none;" onclick="loadSection('trip_leader_information_content')">
+    EXPEDITION LEADER RESOURCES
+  </div>
+
+  <div id="teacherTile" class="tile" style="display: none;" onclick="loadSection('teacher_information_content')">
+    SCHOOL LEADER RESOURCES
+  </div>
+
+</div>
+
+<div id="content">Loading...</div>
+
+<div id="qrCard" hidden>
+  <button class="qr-close" type="button" onclick="dismissQrCard()" aria-label="Close">&times;</button>
+  <div class="qr-title">USE ON YOUR PHONE</div>
+  <div class="qr-code" id="qrCardImage"></div>
+  <div class="qr-caption">Scan with your phone's camera to open the portal there.</div>
+</div>
+
+<div id="installSheet">
+  <h3>ADD TO HOME SCREEN</h3>
+  <p id="installSheetText"></p>
+  <div class="sheet-actions">
+    <button class="sheet-btn primary" onclick="dismissSheet()">GOT IT</button>
+    <button class="sheet-btn ghost" onclick="dismissSheet()">NOT NOW</button>
+  </div>
+</div>
+
+<!-- Application Information modal (teacher tab) -->
+<div id="appModal" class="app-modal" hidden>
+  <div class="app-modal-backdrop" onclick="closeApplicationModal()"></div>
+  <div class="app-modal-content" role="dialog" aria-modal="true" aria-labelledby="appModalTitle">
+    <div class="app-modal-header">
+      <div>
+        <h2 id="appModalTitle">APPLICATION INFORMATION</h2>
+        <span id="appModalSubject" class="app-modal-subject"></span>
+      </div>
+      <button class="app-modal-close" type="button" onclick="closeApplicationModal()" aria-label="Close">&times;</button>
+    </div>
+    <div id="appModalBody" class="app-modal-body">
+      <div class="application-detail-empty">LOADING…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const email = sessionStorage.getItem("portalEmail");
+  if (!email) window.location.href = "/login.html";
+
+  // ----- Admin viewing mode -----
+  // Admins land on /admin.html after login, then click a trip to view. We
+  // get back here with two query params: portalId (the Portal record they
+  // chose) and as_admin=1 (a flag that turns the portal into admin mode).
+  const _viewParams = new URLSearchParams(window.location.search);
+  const adminPortalId = _viewParams.get("portalId");
+  // Visit /index.html?debug_photos=1 to surface every leader-card photo
+  // URL on-page (and tag the card body with its load status) so a phone
+  // screenshot is enough to debug without DevTools.
+  const _DEBUG_PHOTOS = _viewParams.get("debug_photos") === "1";
+  const isAdminView   = _viewParams.get("as_admin") === "1" && !!adminPortalId;
+  const adminRole     = sessionStorage.getItem("adminRole");
+  // Drop the flag if the user isn't actually logged in as an admin —
+  // can't bypass the role check by hand-editing the URL.
+  const adminViewing  = isAdminView && !!adminRole;
+
+  let portalData = {};
+
+  const tileColors = ["active-teal", "active-sand", "active-olive", "active-blue", "active-teal", "active-sand", "active-olive", "active-sand"];
+
+  // ============================================================
+  // === EDIT THIS LIST TO ADD A MANUAL / RESOURCE CARD ===
+  //
+  // Each entry below renders one card on the "Manuals, Handbooks and
+  // Resources" tab. The cards auto-hide if the property is empty on the
+  // current trip's Portal record, so it's safe to add entries before
+  // they're populated.
+  //
+  //   - `label` is the heading shown on the card (any wording you like).
+  //   - `prop`  must match the property's INTERNAL NAME in HubSpot
+  //             (Settings → Properties → click the property → "Internal name").
+  //
+  // ⚠ Don't forget to also add `prop` to the properties list in
+  //   netlify/functions/portal.js — otherwise the value is never fetched.
+  //
+  // See HOW_TO_ADD_FIELDS.md in the project root for the full guide.
+  // ============================================================
+  const MANUAL_FIELDS = [
+    { label: "Student Manual",         prop: "student_manual" },
+    { label: "Student Handbook",       prop: "student_handbook" },
+    { label: "Gear List",              prop: "gear_list" },
+    { label: "Fundraising Guide",      prop: "fundraising_guide" },
+    { label: "Fitness",                prop: "fitness" },
+    { label: "Generic Kit Info Flyer", prop: "generic_kit_info_flyer" },
+    { label: "Fundraising Team Tool",  prop: "fundraising_team_tool" },
+    { label: "Fundraising Templates",  prop: "fundraising_templates" }
+    // Add new entries here, e.g.:
+    //   { label: "Pre-Trip Checklist", prop: "pre_trip_checklist" }
+  ];
+
+  function renderManualsCards() {
+    const cards = MANUAL_FIELDS
+      .filter(f => {
+        const v = portalData[f.prop];
+        return v && String(v).trim();
+      })
+      .map(f => {
+        const url = String(portalData[f.prop]).trim();
+        return `
+          <div class="manual-card">
+            <h4>${f.label.toUpperCase()}</h4>
+            <a href="${url}" target="_blank" rel="noopener" class="manual-link">VIEW DOCUMENT</a>
+          </div>
+        `;
+      });
+
+    if (cards.length === 0) {
+      return `<div class="manuals-empty">No resources have been added yet.</div>`;
+    }
+    return `<div class="manual-grid">${cards.join("")}</div>`;
+  }
+
+  // ============================================================
+  // === EDIT THIS LIST TO ADD/RENAME A TRIP LEADER LINK ===
+  // Each entry below renders as a small card at the top of the
+  // Trip Leader tab — title on top, "Details" button below — but
+  // ONLY when the corresponding HubSpot property has a non-empty
+  // URL on this trip's record (or, if blank there, on the global
+  // Portal record). Empty fields are silently hidden.
+  //
+  // To add a new one:
+  //   1. Create a single-line text property in HubSpot on the
+  //      Portal custom object with the internal name shown in
+  //      `prop` below.
+  //   2. Add the same internal name to PORTAL_PROPERTIES in
+  //      netlify/functions/portal.js.
+  //   3. Add an entry here. Done.
+  //
+  // HubSpot internal-name quirks worth knowing about:
+  //   - Spaces become "_". "Leader Manual" → "leader_manual".
+  //   - Ampersands collapse but the spaces on either side stay,
+  //     so you end up with a DOUBLE underscore. "Emergency
+  //     Numbers & Escalation" → "emergency_numbers__escalation".
+  //   - Everything is lowercased.
+  // ============================================================
+  const TRIP_LEADER_LINKS = [
+    { label: "Leader Manual",                  prop: "leader_manual" },
+    { label: "Leader Handbook",                prop: "leader_handbook" },
+    { label: "Generic Risk Assessment",        prop: "generic_risk_assessment" },
+    { label: "Country Risk Assessment",        prop: "country_risk_assessment" },
+    { label: "Expedition Budget",              prop: "expedition_budget" },
+    { label: "Country Contact List",           prop: "country_contact_list" },
+    { label: "Medical Manual",                 prop: "medical_manual" },
+    { label: "InReach Manual",                 prop: "inreach_manual" },
+    { label: "Satellite Phone Manual",         prop: "satellite_phone_manual" },
+    { label: "Incident Report",                prop: "incident_report_link" },
+    { label: "Accommodation Audit",            prop: "accommodation_audit_link" },
+    { label: "Activity Audit",                 prop: "activity_audit_link" },
+    { label: "Transport Audit",                prop: "transport_audit_link" },
+    { label: "Wise Card Troubleshooting",      prop: "wise_card_troubleshooting" },
+    // Ampersand → double underscore (see header comment).
+    { label: "Emergency Numbers & Escalation", prop: "emergency_numbers__escalation" },
+    { label: "Expense & Reimbursement Policies", prop: "expense__reimbursement_policies" },
+    { label: "Device Policies",                prop: "device_policies" },
+    { label: "Child Protection Policy",        prop: "child_protection_policy" }
+  ];
+
+  // ============================================================
+  // === EDIT THIS LIST TO ADD/RENAME A TEACHER LINK ===
+  // Same shape as TRIP_LEADER_LINKS above. Renders at the top of the
+  // Teachers tab. The properties below are the same HubSpot fields
+  // used by the Trip Leader tab — populating them once on the trip
+  // record (or the global record) will surface them on whichever
+  // tabs reference them, so you don't need duplicate fields per tab.
+  // ============================================================
+  const TEACHER_LINKS = [
+    { label: "Student Manual",         prop: "student_manual" },
+    { label: "Leader Manual",          prop: "leader_manual" },
+    { label: "Generic Risk Assessment", prop: "generic_risk_assessment" },
+    { label: "Leader Handbook",         prop: "leader_handbook" },
+    { label: "Country Risk Assessment", prop: "country_risk_assessment" },
+    { label: "Expedition Budget",      prop: "expedition_budget" },
+    { label: "Country Contact List",   prop: "country_contact_list" },
+    { label: "Generic Kit Info Flyer", prop: "generic_kit_info_flyer" },
+    { label: "Fundraising Team Tool",  prop: "fundraising_team_tool" },
+    { label: "Fundraising Templates",  prop: "fundraising_templates" }
+  ];
+
+  // Generic resource-link grid renderer used by the Trip Leader and
+  // Teacher tabs. Hides any field whose URL is blank on both the trip
+  // record and the global record. Returns an empty string when nothing
+  // is configured so we don't draw an empty section.
+  function renderResourceLinkGrid(fields) {
+    const cards = (fields || [])
+      .filter(f => {
+        const v = portalData[f.prop];
+        return v && String(v).trim();
+      })
+      .map(f => {
+        const url = String(portalData[f.prop]).trim();
+        return `
+          <div class="tl-link-card">
+            <div class="tl-link-title">${f.label.toUpperCase()}</div>
+            <a href="${url}" target="_blank" rel="noopener" class="tl-link-btn">DETAILS</a>
+          </div>
+        `;
+      });
+
+    if (cards.length === 0) return "";
+    return `<div class="tl-link-grid">${cards.join("")}</div>`;
+  }
+
+  // ----- Message board -----
+  // Track per-portal "last seen" timestamp in localStorage. If
+  // portalData.message_board_posted_at is newer than that, the user has
+  // an unseen notice → we show a NEW badge on the tile and an alert banner
+  // on the Expedition Overview.
+  function messageBoardLastSeenKey() {
+    return `mb_last_seen_${portalData.hs_object_id || ""}`;
+  }
+
+  // Parses both ISO strings ("2026-05-04T00:00:00Z") and millisecond
+  // timestamps ("1714780800000") — HubSpot date properties return the
+  // latter, while localStorage timestamps we write ourselves are the former.
+  function parseFlexibleTime(value) {
+    if (value == null) return null;
+    const s = String(value).trim();
+    if (!s) return null;
+    // Pure-numeric → treat as milliseconds since epoch (HubSpot date format).
+    if (/^-?\d+$/.test(s)) {
+      const n = parseInt(s, 10);
+      if (Number.isFinite(n)) return n;
+    }
+    const t = new Date(s).getTime();
+    return isFinite(t) ? t : null;
+  }
+
+  function hasUnseenMessage() {
+    const board = (portalData.message_board || "").trim();
+    if (!board) return false;
+    const updatedTime = parseFlexibleTime(portalData.message_board_posted_at);
+    if (updatedTime == null) return false;
+    let lastSeen;
+    try { lastSeen = localStorage.getItem(messageBoardLastSeenKey()); }
+    catch (e) { lastSeen = null; }
+    const lastSeenTime = parseFlexibleTime(lastSeen) || 0;
+    return updatedTime > lastSeenTime;
+  }
+
+  // ---- Web Push subscription ----
+  // Renders an "ENABLE NOTIFICATIONS" pill at the top of the Message
+  // Board tab IF the browser supports push and the user hasn't already
+  // subscribed in this session. Click → ask permission → subscribe →
+  // POST the subscription to /save-push-subscription.
+  function renderEnablePushButton() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      return ""; // Browser doesn't support push (Safari < 16.4 etc.)
+    }
+    if (Notification.permission === "denied") {
+      return `<div class="push-prompt push-prompt--denied" data-push-prompt>
+        Notifications are blocked for this site. Re-enable them in your browser's site settings to get message-board updates.
+      </div>`;
+    }
+    // Read the persisted "already subscribed" flag from localStorage so
+    // it survives PWA / tab close + reopen. After rendering we also do a
+    // live check against pushManager.getSubscription() — see
+    // confirmPushSubscriptionState() below — which hides the banner if
+    // an actual SW subscription is found, even if the flag is missing.
+    if (localStorage.getItem("pushSubscribed") === "1") return "";
+    return `<div class="push-prompt" data-push-prompt>
+      <div class="push-prompt-text">Get notified when there's a new message on this trip's board.</div>
+      <button type="button" class="push-prompt-btn" onclick="enablePushNotifications(this);">ENABLE NOTIFICATIONS</button>
+    </div>`;
+  }
+
+  // Async post-render check — runs every time the Message Board tab
+  // renders. If the browser already has a push subscription, hide the
+  // banner regardless of what the localStorage flag says (covers the
+  // case where the flag got cleared but the subscription is still live).
+  // Also re-syncs the flag so future renders short-circuit cleanly.
+  async function confirmPushSubscriptionState() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        localStorage.setItem("pushSubscribed", "1");
+        document.querySelectorAll(".push-prompt[data-push-prompt]").forEach(el => {
+          // Only hide the prompt-style banner, not the --denied or --ok variants.
+          if (!el.classList.contains("push-prompt--denied") &&
+              !el.classList.contains("push-prompt--ok")) {
+            el.remove();
+          }
+        });
+      } else {
+        localStorage.removeItem("pushSubscribed");
+      }
+    } catch (_) { /* swallow — banner stays as-is */ }
+  }
+
+  // Click handler. Fetches the public VAPID key, asks the browser for
+  // notification permission, subscribes via the service worker, and
+  // POSTs the subscription to the backend so future server-side
+  // sends can target it.
+  async function enablePushNotifications(btn) {
+    const original = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "ENABLING…"; }
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        alert("Your browser doesn't support push notifications.");
+        return;
+      }
+      // 1. Permission.
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        alert("Notifications were not enabled. You can change this any time in your browser's site settings.");
+        return;
+      }
+      // 2. Public VAPID key from the server.
+      const cfgRes = await fetch("/.netlify/functions/get-push-config");
+      const cfg = await cfgRes.json();
+      if (!cfgRes.ok || !cfg.publicKey) {
+        alert("Push isn't configured on the server yet. Please tell info@unearthededucation.org.");
+        return;
+      }
+      // 3. Subscribe via the service worker.
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(cfg.publicKey)
+        });
+      }
+      // 4. Save the subscription to the user's contact in HubSpot.
+      const saveRes = await fetch("/.netlify/functions/save-push-subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, subscription: sub.toJSON ? sub.toJSON() : sub })
+      });
+      if (!saveRes.ok) {
+        const data = await saveRes.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${saveRes.status}`);
+      }
+      localStorage.setItem("pushSubscribed", "1");
+      // Replace the prompt with a confirmation pill (in-place).
+      const prompt = btn && btn.closest(".push-prompt");
+      if (prompt) {
+        prompt.outerHTML = `<div class="push-prompt push-prompt--ok">
+          You're all set — you'll get a notification when this trip's message board is updated.
+        </div>`;
+      }
+    } catch (err) {
+      console.error("enablePushNotifications failed:", err);
+      alert("Could not enable notifications: " + (err.message || String(err)));
+      if (btn) { btn.disabled = false; btn.textContent = original; }
+    }
+  }
+
+  // Decode the base64-url VAPID public key into the Uint8Array the
+  // PushManager.subscribe API requires.
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  function applyMessageBoardBadge() {
+    const badge = document.getElementById("messageBoardBadge");
+    if (!badge) return;
+    badge.style.display = hasUnseenMessage() ? "inline-block" : "none";
+  }
+
+  function markMessageBoardSeen() {
+    try { localStorage.setItem(messageBoardLastSeenKey(), new Date().toISOString()); }
+    catch (e) { /* ignore */ }
+    applyMessageBoardBadge();
+    // Clear the iOS app-icon badge as well — the user has read the
+    // message they were notified about. Feature-detected so non-iOS
+    // browsers / older iOS just no-op.
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.clearAppBadge === "function") {
+        navigator.clearAppBadge().catch(() => {});
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  function renderMessageBoardAlert() {
+    if (!hasUnseenMessage()) return "";
+    return `<div class="message-board-alert" onclick="loadSection('message_board')">
+      <span class="mb-icon">📢</span>
+      <div><strong>New notice posted</strong> — click to view the message board</div>
+      <span class="mb-arrow">VIEW &rsaquo;</span>
+    </div>`;
+  }
+
+  // Treat semicolons in plain-text HubSpot fields as a paragraph break so the
+  // team can lay out long values (e.g. flight routings) with breathing room
+  // directly in HubSpot. Each ; becomes two <br>s — one to end the line and
+  // one to put a blank line between segments. Only applied to fields that
+  // come through as plain text — HTML-blob fields (FAQs, Manuals, etc.)
+  // already render whatever breaks the rich-text editor produced.
+  function applyTextBreaks(text) {
+    if (text == null) return "";
+    const s = String(text);
+    if (s.indexOf(";") === -1) return s;
+    return s
+      .split(/\s*;\s*/)
+      .map(part => part.trim())
+      .filter(part => part.length > 0)
+      .join("<br><br>");
+  }
+
+  // Turn bare URLs in a text/HTML string into clickable links. Used by the
+  // expedition overview cards so the team can paste a URL straight into a
+  // HubSpot field (e.g. buildup_day_information) and have it render as a
+  // real hyperlink. Notes on behaviour:
+  //  - Matches http://, https://, and bare www. URLs.
+  //  - Leaves anything already inside an <a>...</a> alone (no double-wrapping).
+  //  - Strips trailing punctuation like ".,;:!?)" so a sentence ending right
+  //    after a URL doesn't get pulled into the href.
+  //  - Bare www. links are prefixed with https:// for the href so they work.
+  function linkify(html) {
+    if (html == null) return "";
+    const parts = String(html).split(/(<a\b[^>]*>[\s\S]*?<\/a>)/i);
+    const urlRe = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+    return parts.map((part, i) => {
+      // Odd-indexed parts are existing <a>...</a> blocks — keep as-is.
+      if (i % 2 === 1) return part;
+      return part.replace(urlRe, (match) => {
+        const trailMatch = match.match(/[).,;:!?]+$/);
+        const trail = trailMatch ? trailMatch[0] : "";
+        const url = trail ? match.slice(0, -trail.length) : match;
+        const href = /^www\./i.test(url) ? "https://" + url : url;
+        // .inline-link tells styleLinksAsButtons() to leave this anchor
+        // alone — it's an inline hyperlink inside body copy, not a CTA.
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="inline-link">${url}</a>${trail}`;
+      });
+    }).join("");
+  }
+
+  // Used to safely embed strings inside HTML attributes (e.g. data-description).
+  function attrEsc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  // Click handler for per-row payment amounts. Creates a Stripe Checkout Session
+  // server-side via /.netlify/functions/create-checkout-session and redirects
+  // the user straight to checkout.stripe.com — bypassing the intermediate
+  // "make payment + history" page.
+  //
+  // Opens a new tab synchronously inside the click event so popup blockers
+  // don't bite, then navigates that tab once Stripe returns the session URL.
+  // Falls back to the link's href (the intermediate page) on any failure.
+  // Lazy-fetches the logged-in user's most recent Jotform application
+  // submissionId and opens https://www.jotform.com/edit/{id} in a new
+  // tab. Pattern mirrors startCheckout — the popup is opened up-front
+  // so popup-blockers don't bite, then redirected once we have the URL.
+  // Falls back to an alert if nothing is found.
+  async function openApplicationEdit(btn) {
+    if (window.__appEditBusy) return false;
+    window.__appEditBusy = true;
+    const newWin = window.open("about:blank", "_blank");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "LOADING…";
+    try {
+      const res = await fetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.found && data.submissionId) {
+        const editUrl = `https://www.jotform.com/edit/${encodeURIComponent(data.submissionId)}`;
+        if (newWin) newWin.location.href = editUrl;
+        else window.location.href = editUrl;
+        return false;
+      }
+      if (newWin) newWin.close();
+      alert("We couldn\u2019t find an application form submission for your email yet. " +
+            "If you\u2019ve recently submitted one, try again in a minute, " +
+            "or contact info@unearthededucation.org.");
+    } catch (err) {
+      console.error("openApplicationEdit error:", err);
+      if (newWin) newWin.close();
+      alert("Could not load your application. Please try again in a minute.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+      window.__appEditBusy = false;
+    }
+    return false;
+  }
+
+  async function startCheckout(event, el) {
+    event.preventDefault();
+    if (window.__stripeCheckoutBusy) return false;
+    window.__stripeCheckoutBusy = true;
+
+    const fallbackHref = el.getAttribute("href") || "";
+    const newWin = window.open("about:blank", "_blank");
+
+    const originalOpacity = el.style.opacity;
+    el.style.opacity = "0.55";
+    el.style.pointerEvents = "none";
+
+    try {
+      const payload = {
+        email,
+        paymentIndex: parseInt(el.dataset.paymentIndex, 10) || null,
+        baseAmount: el.dataset.baseAmount ? parseFloat(el.dataset.baseAmount) : null,
+        chargeAmount: el.dataset.chargeAmount ? parseFloat(el.dataset.chargeAmount) : null,
+        description: el.dataset.description || "",
+        // "card" (default, +3% fee) or "direct_debit" (no fee). Comes from
+        // the data-payment-type attribute set on the per-row link.
+        paymentType: el.dataset.paymentType || "card"
+      };
+
+      const res = await fetch("/.netlify/functions/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      let data = {};
+      try { data = await res.json(); } catch (e) { /* ignore */ }
+
+      if (res.ok && data.url) {
+        if (newWin) {
+          newWin.location.href = data.url;
+        } else {
+          // Popup blocked — fall back to same-tab redirect
+          window.location.href = data.url;
+        }
+        return false;
+      }
+
+      // Stripe call didn't work. If we have a fallback URL configured
+      // (payment_form_url on the trip or global record), open that;
+      // otherwise just close the popup and tell the user to try again.
+      console.error("Checkout creation failed:", data);
+      const haveFallback = !!(fallbackHref && fallbackHref !== "#");
+      if (newWin) {
+        if (haveFallback) newWin.location.href = fallbackHref;
+        else newWin.close();
+      }
+      alert(
+        "Could not start the payment. " +
+        (data.error ? "(" + data.error + ") " : "") +
+        (haveFallback
+          ? "Opening the standard payment page instead."
+          : "Please try again in a moment, or contact info@unearthededucation.org if it keeps failing.")
+      );
+
+    } catch (err) {
+      console.error("Checkout error:", err);
+      const haveFallback = !!(fallbackHref && fallbackHref !== "#");
+      if (newWin) {
+        if (haveFallback) newWin.location.href = fallbackHref;
+        else newWin.close();
+      }
+      alert(
+        "Could not reach the payment service. " +
+        (haveFallback
+          ? "Opening the standard payment page instead."
+          : "Please try again in a moment, or contact info@unearthededucation.org if it keeps failing.")
+      );
+    } finally {
+      el.style.opacity = originalOpacity;
+      el.style.pointerEvents = "";
+      window.__stripeCheckoutBusy = false;
+    }
+    return false;
+  }
+
+  async function init(retries = 3) {
+    try {
+      // Admins fetch a specific portal by id. Regular users fetch
+      // their own via email-based contact-association lookup. If the
+      // user is associated with multiple trips, they'll have already
+      // chosen one on /my-trips.html, which stashed the chosen id in
+      // sessionStorage as `selectedPortalId`. We pass that as `?picked=`
+      // so portal.js scopes to it (verified server-side against the
+      // user's real association list).
+      let portalUrl;
+      if (adminViewing) {
+        portalUrl = `/.netlify/functions/portal?portalId=${encodeURIComponent(adminPortalId)}`;
+      } else {
+        const picked = sessionStorage.getItem("selectedPortalId");
+        portalUrl = picked
+          ? `/.netlify/functions/portal?email=${encodeURIComponent(email)}&picked=${encodeURIComponent(picked)}`
+          : `/.netlify/functions/portal?email=${encodeURIComponent(email)}`;
+      }
+      console.log("[init] fetching portal URL:", portalUrl);
+      const res = await fetch(portalUrl);
+      // Netlify returns HTML when a function crashes at startup; try to
+      // parse JSON, but if that fails, surface the raw text + status so
+      // we can debug instead of falling into the silent retry loop.
+      let data;
+      const responseText = await res.text();
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error(`[init] portal response was not JSON (HTTP ${res.status}):`, responseText.slice(0, 400));
+        document.body.innerHTML = `<div style="padding:32px; font-family:Inter,sans-serif;"><h1 style="color:#c0392b;">Error loading portal</h1><p>HTTP ${res.status} from /.netlify/functions/portal</p><pre style="background:#f5f1e6; padding:12px; overflow:auto; font-size:11px;">${responseText.slice(0, 800).replace(/[<&>]/g, c => ({"<":"&lt;","&":"&amp;",">":"&gt;"})[c])}</pre></div>`;
+        return;
+      }
+
+      console.log("PORTAL DATA:", data);
+
+      // Multi-portal user with no valid `picked` choice yet — bounce
+      // them to /my-trips.html so they can choose which trip to view.
+      if (data.requirePicker) {
+        // Drop any stale picked id so the picker always renders fresh.
+        try { sessionStorage.removeItem("selectedPortalId"); } catch (_) {}
+        window.location.href = "/my-trips.html";
+        return;
+      }
+
+      if (data.error === "Contact not found" && retries > 0) {
+        console.log(`Retrying... ${retries} attempts left`);
+        setTimeout(() => init(retries - 1), 500);
+        return;
+      }
+
+      if (data.error) {
+        document.body.innerHTML = `<h1>${data.error}</h1>`;
+        return;
+      }
+
+      portalData = data;
+
+      // Each step below is independently guarded. We log each one
+      // AND paint a yellow on-page error banner that lists every step
+      // that threw, so a screenshot of the failing page is enough to
+      // diagnose without needing DevTools open.
+      const stepFailures = [];
+      const safeRun = (name, fn) => {
+        try { fn(); }
+        catch (err) {
+          const msg = (err && (err.message || String(err))) || "(unknown error)";
+          console.error(`[init] step "${name}" threw:`, err);
+          stepFailures.push({ step: name, message: msg });
+          renderInitFailureBanner();
+        }
+      };
+      function renderInitFailureBanner() {
+        let banner = document.getElementById("initFailureBanner");
+        if (!banner) {
+          banner = document.createElement("div");
+          banner.id = "initFailureBanner";
+          banner.style.cssText = "position:fixed; top:0; left:0; right:0; background:#fff3cd; color:#664d03; border-bottom:2px solid #f1c40f; padding:10px 16px; font-family:Inter,sans-serif; font-size:12px; line-height:1.5; z-index:9999; box-shadow:0 2px 6px rgba(0,0,0,0.06); max-height:40vh; overflow:auto;";
+          document.body.insertBefore(banner, document.body.firstChild);
+        }
+        const safe = (s) => String(s == null ? "" : s)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const rows = stepFailures.map(f =>
+          `<div><strong>${safe(f.step)}</strong>: ${safe(f.message)}</div>`
+        ).join("");
+        banner.innerHTML = `<div style="font-weight:600; margin-bottom:4px;">Init failures (${stepFailures.length}):</div>${rows}`;
+      }
+
+      safeRun("renderAdminBanner", () => { if (adminViewing) renderAdminBanner(); });
+      // Reveal the SWITCH TRIP link in the header if this user has more
+      // than one associated trip. Hidden in admin viewing mode (admins
+      // use /admin.html for picking).
+      safeRun("renderSwitchTripLink", () => {
+        const tripCount = data && data.availableTripCount;
+        const sw = document.getElementById("switchTripLink");
+        if (sw && !adminViewing && typeof tripCount === "number" && tripCount > 1) {
+          sw.style.display = "inline-block";
+        }
+      });
+      safeRun("set title",         () => {
+        document.getElementById("title").innerText = portalData.portal_title || "UNEARTHED";
+      });
+      safeRun("set destination",   () => {
+        document.getElementById("destination").innerText =
+          portalData.destination ? `DESTINATION: ${portalData.destination}` : "STUDENT PORTAL";
+      });
+      safeRun("set price",         () => {
+        if (portalData.price) {
+          document.getElementById("programPrice").innerText =
+            `PRICE: $${parseFloat(portalData.price).toLocaleString()}`;
+        }
+      });
+      safeRun("applyVisibility",        () => applyVisibility(portalData.labels));
+      safeRun("assignTileColors",       () => assignTileColors());
+      safeRun("applyMessageBoardBadge", () => applyMessageBoardBadge());
+      safeRun("loadSection",            () => loadSection("trip_information_content"));
+      safeRun("showInstallPrompt",      () => showInstallPrompt());
+      safeRun("showDesktopQr",          () => showDesktopQr());
+
+    } catch (err) {
+      console.error("[init] threw:", err);
+      if (retries > 0) {
+        setTimeout(() => init(retries - 1), 500);
+      } else {
+        // Final-attempt failure: surface what threw + the URL we tried,
+        // instead of a bare "Error loading portal" with no context.
+        const portalUrl = adminViewing
+          ? `/.netlify/functions/portal?portalId=${encodeURIComponent(adminPortalId)}`
+          : `/.netlify/functions/portal?email=${encodeURIComponent(email)}`;
+        const safe = (s) => String(s == null ? "" : s)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        document.body.innerHTML = `<div style="padding:32px; font-family:Inter,sans-serif;">
+          <h1 style="color:#c0392b;">Error loading portal</h1>
+          <p>The portal request failed three times.</p>
+          <p><strong>URL:</strong> <code>${safe(portalUrl)}</code></p>
+          <p><strong>Error:</strong> <code>${safe(err && (err.message || err))}</code></p>
+        </div>`;
+      }
+    }
+  }
+
+  function assignTileColors() {
+    const tiles = document.querySelectorAll(".tile");
+    tiles.forEach((tile, index) => {
+      tileColors.forEach(c => tile.classList.remove(c));
+      tile.classList.add(tileColors[index % tileColors.length]);
+    });
+  }
+
+  function setActiveTile(field) {
+    const tiles = document.querySelectorAll(".tile");
+    tiles.forEach(tile => tile.classList.remove("active"));
+    const clicked = [...tiles].find(t => t.getAttribute("onclick")?.includes(field));
+    if (clicked) clicked.classList.add("active");
+  }
+
+  function formatDate(val) {
+    if (!val) return '<span class="tbc">TBC</span>';
+    const d = new Date(val);
+    return isNaN(d) ? val : d.toLocaleDateString("en-NZ", {
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    });
+  }
+
+  function formatDateShort(val) {
+    if (!val) return null;
+    const d = new Date(val);
+    return isNaN(d) ? val : d.toLocaleDateString("en-NZ", {
+      year: "numeric", month: "long", day: "numeric"
+    });
+  }
+
+  function loadExpeditionOverview() {
+    const p = portalData;
+
+    function info(val) {
+      // Wrap in .readmore-content so applyReadMoreClamping() can clamp +
+      // toggle the long ones without affecting short ones.
+      // linkify() turns any bare URL pasted into the HubSpot info field
+      // (e.g. "https://unearthededucation.org") into a clickable link.
+      // Quick Links cards don't go through this helper, so their existing
+      // buttons are unaffected.
+      return val
+        ? `<div class="event-info readmore-content">${linkify(applyTextBreaks(val))}</div>`
+        : "";
+    }
+
+    const events = [
+      // "Quick Links" replaces the old single-button itinerary card.
+      // Renders the itinerary URL and a button to open the user's own
+      // Jotform application for editing (lazy-fetched on click).
+      { title: "QUICK LINKS", isQuickLinks: true, itineraryUrl: p.itinerary },
+      { title: "INITIAL PLANNING MEETING", date: p.initial_planning_meeting, info: p.initial_planning_meeting_information },
+      { title: "TRAINING EVENT", date: p.training_event, info: p.training_event_information },
+      { title: "FINAL BRIEFING", date: p.final_briefing, info: p.final_briefing_information },
+      { title: "BUILD-UP DAY", date: p.buildup_day, info: p.buildup_day_information },
+      // Optional additional workshop — only included when the
+      // `additional_workshop` field on the portal has been filled in.
+      // The field value itself is used as the card title.
+      ...(p.additional_workshop
+        ? [{
+            title: String(p.additional_workshop).toUpperCase(),
+            date: p.additional_workshop_date,
+            info: p.additional_workshop_information
+          }]
+        : []),
+      { title: "RE-ENTRY WORKSHOP", date: p.reentry_workshop, info: p.reentry_workshop_information }
+    ];
+
+    const grid = events.map(e => {
+      if (e.isQuickLinks) {
+        const itineraryHtml = e.itineraryUrl
+          ? `<a href="${e.itineraryUrl}" target="_blank" class="event-link">VIEW ITINERARY</a>`
+          : `<span class="tbc">TBC</span>`;
+        // The Edit Application button is wired to a click handler that
+        // lazily fetches the user's application submissionId and then
+        // opens jotform.com/edit/{id} in a new tab. Always rendered;
+        // graceful fallback if no submission is found.
+        const editAppHtml = `<button type="button"
+          class="event-link event-link--app"
+          onclick="return openApplicationEdit(this);">EDIT APPLICATION</button>`;
+        return `
+          <div class="expedition-card itinerary-card quick-links-card">
+            <h4>${e.title}</h4>
+            <div class="quick-link-row">
+              <div class="quick-link-row-label">ITINERARY</div>
+              ${itineraryHtml}
+            </div>
+            <div class="quick-link-row">
+              <div class="quick-link-row-label">YOUR APPLICATION</div>
+              ${editAppHtml}
+            </div>
+          </div>`;
+      }
+      return `
+        <div class="expedition-card">
+          <h4>${e.title}</h4>
+          <div class="event-date">${formatDate(e.date)}</div>
+          ${info(e.info)}
+        </div>`;
+    }).join("");
+
+    return `<div class="expedition-grid">${grid}</div>`;
+  }
+
+  function loadFlightsAndInsurance() {
+    const p = portalData;
+
+    function detail(label, val) {
+      const formatted = val ? applyTextBreaks(val) : '<span class="tbc">TBC</span>';
+      return `<div class="flight-detail"><strong>${label}:</strong> ${formatted}</div>`;
+    }
+
+    return `
+      <div class="flights-grid">
+        <div class="flight-card">
+          <h4>DEPARTURE FLIGHT</h4>
+          <div class="flight-date">${formatDate(p.flight_departure_date)}</div>
+          <div class="readmore-content">
+            ${detail("Airline(s)", p.departure_airlines)}
+            ${detail("Routing", p.departure_routing)}
+          </div>
+        </div>
+        <div class="flight-card return">
+          <h4>RETURN FLIGHT</h4>
+          <div class="flight-date">${formatDate(p.return_flight_date)}</div>
+          <div class="readmore-content">
+            ${detail("Airline(s)", p.return_flight_airlines)}
+            ${detail("Routing", p.return_flight_routing)}
+          </div>
+        </div>
+      </div>
+      <div class="insurance-section">
+        <div class="insurance-section-label">INSURANCE</div>
+        <div id="insuranceContent"><span style="font-size:13px; color:#999;">Loading insurance details...</span></div>
+      </div>
+    `;
+  }
+
+  async function loadInsurance() {
+    const el = document.getElementById("insuranceContent");
+    if (!el) return;
+
+    // Prefer per-trip insurance fields (set on the trip's portal record)
+    // when populated, fall back to the global record's shared values.
+    let overview = (portalData.insurance_overview__faqs || "").trim();
+    let wording  = (portalData.insurance_policy_wording   || "").trim();
+
+    if (!overview || !wording) {
+      try {
+        const res = await fetch(`/.netlify/functions/get-insurance`);
+        const data = await res.json();
+        if (!overview && data.insurance_overview__faqs) overview = String(data.insurance_overview__faqs).trim();
+        if (!wording  && data.insurance_policy_wording)    wording  = String(data.insurance_policy_wording).trim();
+      } catch (err) {
+        // Swallow — we'll show TBC for whichever side is still empty.
+      }
+    }
+
+    const links = [];
+    if (overview) {
+      links.push(`<a href="${overview}" target="_blank" class="flight-link">INSURANCE OVERVIEW & FAQs</a>`);
+    }
+    if (wording) {
+      links.push(`<a href="${wording}" target="_blank" class="flight-link">POLICY WORDING</a>`);
+    }
+
+    el.innerHTML = links.length
+      ? `<div style="margin-top:8px;">${links.join("")}</div>`
+      : `<span class="tbc">TBC</span>`;
+  }
+
+  async function loadPayments() {
+    const p = portalData;
+
+    // payment_form_url and payments_information_content are now merged into
+    // portalData by portal.js (trip record overrides global record). So we
+    // can read them directly from portalData; the get-insurance fallback is
+    // only kept as a safety net.
+    const paidPromise = fetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(email)}`)
+      .then(r => r.json())
+      .catch(err => { console.error("Paid payments fetch error:", err); return { payments: [] }; });
+
+    // Resolve the payment-form URL.
+    //
+    // The merge in portal.js already overlays trip-record values on top of
+    // the global record, so portalData has the right value for our trip.
+    // We accept either of the two field names HubSpot has carried over the
+    // years (`payment_form_url` and the older `payments_form_url`).
+    //
+    // KEY GUARD: only accept values that actually look like a URL. Some
+    // HubSpot fields end up with placeholder labels like "Payment form url"
+    // sitting in them, which would otherwise be rendered as the href and
+    // produce a broken relative link
+    // (e.g. https://portal.unearthededucation.org/Payment%20form%20url).
+    function looksLikeUrl(v) {
+      if (!v) return false;
+      return /^https?:\/\//i.test(String(v).trim());
+    }
+
+    const candidates = {
+      "portalData.payment_form_url":  portalData.payment_form_url,
+      "portalData.payments_form_url": portalData.payments_form_url,
+    };
+    console.log("[loadPayments] payment-form-url candidates:", candidates);
+
+    let paymentFormUrl = null;
+    for (const v of Object.values(candidates)) {
+      if (looksLikeUrl(v)) { paymentFormUrl = String(v).trim(); break; }
+    }
+
+    let paymentsInfo = (portalData.payments_information_content || "").trim();
+
+    // Safety-net fetch from the get-insurance helper if the merged
+    // portalData didn't have anything usable. Still requires the value to
+    // actually look like a URL.
+    if (!paymentFormUrl || !paymentsInfo) {
+      try {
+        const r = await fetch(`/.netlify/functions/get-insurance`);
+        const d = await r.json();
+        if (!paymentFormUrl && looksLikeUrl(d.payment_form_url)) {
+          paymentFormUrl = String(d.payment_form_url).trim();
+        }
+        if (!paymentsInfo && d.payments_information_content) {
+          paymentsInfo = String(d.payments_information_content).trim();
+        }
+      } catch (err) {
+        console.error("Payment global fetch error:", err);
+      }
+    }
+
+    console.log("[loadPayments] paymentFormUrl resolved to:", paymentFormUrl);
+
+    const paidData = await paidPromise;
+
+    let btnHtml = "";
+    let infoHtml = "";
+
+    if (paymentsInfo) {
+      infoHtml = `<div class="payments-header">${paymentsInfo}</div>`;
+    }
+
+    if (paymentFormUrl) {
+      // Some payment-form URLs already contain a query string (e.g. a shared
+      // Stripe-payment-link or HubSpot-page URL with tracking params). Use
+      // "&" as the joiner in that case so we don't produce a malformed URL
+      // like "...?foo=bar?email=jake@…" which silently breaks the email
+      // prefill.
+      const sep = paymentFormUrl.includes("?") ? "&" : "?";
+      btnHtml = `<a href="${paymentFormUrl}${sep}email=${encodeURIComponent(email)}" target="_blank" class="payment-btn">MAKE A PAYMENT &amp; SEE PAYMENT HISTORY</a>`;
+    }
+
+    // Build a map of paid entries keyed by their schedule row index (1..10).
+    const paidByIndex = {};
+    if (paidData && Array.isArray(paidData.payments)) {
+      paidData.payments.forEach(entry => {
+        if (entry && entry.index) paidByIndex[entry.index] = entry;
+      });
+    }
+
+    // Processing-fee config. The customer covers the card processing fee on top of
+    // the listed installment amount, so what they're actually charged at Stripe is
+    // base * (1 + PROCESSING_FEE_RATE), rounded to 2 decimals.
+    const PROCESSING_FEE_RATE = 0.03; // 3%
+
+    function withProcessingFee(amount) {
+      const n = parseFloat(amount);
+      if (!isFinite(n)) return null;
+      return Math.round(n * (1 + PROCESSING_FEE_RATE) * 100) / 100;
+    }
+
+    function fmtMoney(n) {
+      return `$${parseFloat(n).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    // Builds the FALLBACK URL for a specific payment row — used as the
+    // <a href="..."> target only when our /create-checkout-session call
+    // fails for some reason. The actual Stripe Checkout flow doesn't use
+    // this URL: it's driven entirely by the data-* attributes on the
+    // anchor + the startCheckout() handler. So this can return null when
+    // the trip (and global record) have no payment_form_url configured —
+    // we still want the row to be clickable in that case.
+    function buildPaymentLink(i, baseAmount, chargeAmount) {
+      if (!paymentFormUrl) return null;
+      const params = new URLSearchParams();
+      if (email) params.set("email", email);
+      params.set("payment", String(i));
+      if (chargeAmount != null) params.set("amount", String(chargeAmount));
+      if (baseAmount != null) params.set("base_amount", String(baseAmount));
+      params.set("processing_fee_rate", String(PROCESSING_FEE_RATE));
+      // Same query-string-aware concat as the top button uses, so a
+      // payment_form_url that already has params doesn't get clobbered.
+      const sep = paymentFormUrl.includes("?") ? "&" : "?";
+      return `${paymentFormUrl}${sep}${params.toString()}`;
+    }
+
+    // Format a paid entry's "actual amount · paid date" subtitle.
+    function formatPaidDetail(entry) {
+      const parts = [];
+      if (entry.amount != null) {
+        parts.push(fmtMoney(entry.amount));
+      }
+      if (entry.dateIso) {
+        const d = new Date(entry.dateIso);
+        if (!isNaN(d.getTime())) {
+          parts.push(d.toLocaleDateString("en-NZ", { year: "numeric", month: "short", day: "numeric" }));
+        }
+      } else if (entry.dateRaw) {
+        parts.push(entry.dateRaw);
+      }
+      return parts.length ? parts.join(" · ") : "Recorded on the deal";
+    }
+
+    // Build payment schedule from associated portal object
+    const rows = [];
+    for (let i = 1; i <= 10; i++) {
+      const date = p[`payment_date_${i}`];
+      const amount = p[`payment_amount_${i}`];
+      if (!date && !amount) continue;
+
+      const formattedDate = formatDateShort(date);
+      const paidEntry = paidByIndex[i] || null;
+
+      const baseNum = amount != null && amount !== "" ? parseFloat(amount) : null;
+      const chargeNum = baseNum != null ? withProcessingFee(baseNum) : null;
+
+      let amountCell;
+      let rowClass = "payment-row";
+
+      if (paidEntry) {
+        // Mark this row paid. Show the actual paid amount + date underneath
+        // the PAID badge; drop the click-to-pay link entirely.
+        rowClass += " paid";
+        amountCell = `<span class="paid-badge">PAID</span>` +
+          `<span class="payment-amount-note">${formatPaidDetail(paidEntry)}</span>`;
+      } else if (chargeNum != null) {
+        // Two payment options per row:
+        //   1. Card with 3% processing fee   (chargeNum = base × 1.03)
+        //   2. Direct debit, no fee          (charges base exactly)
+        // Each is its own clickable button that hits startCheckout()
+        // with a different paymentType, which the backend translates
+        // into different Stripe payment_method_types and amount.
+        const cardChargeText  = fmtMoney(chargeNum);
+        const debitChargeText = fmtMoney(baseNum);
+        const baseText        = fmtMoney(baseNum);
+        const fallbackLink    = buildPaymentLink(i, baseNum, chargeNum);
+        const tripName        = portalData.portal_title || portalData.destination || "Unearthed";
+        const description     = `${tripName} — Payment ${i}`;
+
+        // Inline SVG icons keep the markup self-contained — no extra
+        // assets to hot-link. Both use currentColor so they inherit
+        // whatever text color the button is set to.
+        const cardIcon = `<svg class="payment-amount-icon" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="2" y1="10" x2="22" y2="10" stroke="currentColor" stroke-width="2"/><line x1="6" y1="15" x2="10" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+        const bankIcon = `<svg class="payment-amount-icon" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><polygon points="12,3 22,8 2,8" fill="currentColor"/><rect x="4" y="10" width="2.5" height="8" fill="currentColor"/><rect x="9" y="10" width="2.5" height="8" fill="currentColor"/><rect x="14" y="10" width="2.5" height="8" fill="currentColor"/><rect x="2" y="19" width="20" height="2.2" fill="currentColor"/></svg>`;
+
+        const cardLink = `<a href="${fallbackLink || "#"}"
+              target="_blank" rel="noopener"
+              class="payment-amount-link payment-amount-link--card"
+              title="Pay by card (includes 3% processing fee)"
+              data-payment-index="${i}"
+              data-base-amount="${baseNum}"
+              data-charge-amount="${chargeNum}"
+              data-description="${attrEsc(description)}"
+              data-payment-type="card"
+              onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${cardIcon}<span class="payment-amount-method">CARD</span></span><span class="payment-amount-money">${cardChargeText}</span></a>`;
+
+        const debitLink = `<a href="${fallbackLink || "#"}"
+              target="_blank" rel="noopener"
+              class="payment-amount-link payment-amount-link--debit"
+              title="Pay by bank transfer (no processing fee)"
+              data-payment-index="${i}"
+              data-base-amount="${baseNum}"
+              data-charge-amount="${baseNum}"
+              data-description="${attrEsc(description)}"
+              data-payment-type="direct_debit"
+              onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${bankIcon}<span class="payment-amount-method">BANK TRANSFER</span><span class="payment-amount-badge">NZ ONLY</span><span class="payment-amount-badge payment-amount-badge--good">NO FEE</span></span><span class="payment-amount-money">${debitChargeText}</span></a>`;
+
+        amountCell = `<div class="payment-amount-options">${cardLink}${debitLink}</div>` +
+                     `<span class="payment-amount-note">Base ${baseText} · card +3% fee</span>`;
+      } else {
+        amountCell = '<span class="tbc">TBC</span>';
+      }
+
+      // Row 1 is the deposit — label it as such and don't render a due date.
+      const rowLabel = i === 1 ? "DEPOSIT" : `PAYMENT ${i}`;
+      const dateCell = i === 1 ? "" : (formattedDate || '<span class="tbc">TBC</span>');
+
+      rows.push(`
+        <div class="${rowClass}">
+          <div class="payment-label">${rowLabel}</div>
+          <div class="payment-date">${dateCell}</div>
+          <div class="payment-amount">${amountCell}</div>
+        </div>
+      `);
+    }
+
+    const scheduleHtml = rows.length ? `
+      <div class="payments-schedule">
+        <div class="payments-schedule-label">PAYMENT SCHEDULE</div>
+        ${rows.join("")}
+      </div>
+    ` : "";
+
+    return `
+      ${infoHtml}
+      ${btnHtml}
+      ${scheduleHtml}
+    `;
+  }
+
+  function loadSection(field) {
+    // Refuse to render the two leader-only sections unless applyVisibility()
+    // has positively confirmed the current user is allowed to see them.
+    // Belt-and-braces in case someone tries to call loadSection() from the
+    // console / by hand-editing the DOM.
+    const leaderAllowed = window.__leaderTilesAllowed || {};
+    if (field === "teacher_information_content" && !leaderAllowed.teacher) {
+      console.warn("[loadSection] blocked teacher_information_content — not authorized.");
+      return;
+    }
+    if (field === "trip_leader_information_content" && !leaderAllowed.tripLeader) {
+      console.warn("[loadSection] blocked trip_leader_information_content — not authorized.");
+      return;
+    }
+
+    setActiveTile(field);
+
+    const content = document.getElementById("content");
+    content.style.opacity = 0;
+
+    setTimeout(async () => {
+      try {
+
+      if (field === "trip_information_content") {
+        // Inject a "new notice" banner above the expedition cards if there
+        // is an unseen message-board update. Tap-to-go-to-board.
+        content.innerHTML = renderMessageBoardAlert() + loadExpeditionOverview();
+        content.style.opacity = 1;
+        styleLinksAsButtons();
+        applyReadMoreClamping(content);
+        await loadTeacherList(content);
+        return;
+      }
+
+      if (field === "message_board") {
+        const board = (portalData.message_board || "").trim();
+        const updatedTime = parseFlexibleTime(portalData.message_board_posted_at);
+        let metaHtml = "";
+        if (updatedTime != null) {
+          const d = new Date(updatedTime);
+          if (!isNaN(d.getTime())) {
+            const when = d.toLocaleDateString("en-NZ", { year: "numeric", month: "short", day: "numeric" });
+            metaHtml = `<div class="message-board-meta">LAST UPDATED ${attrEsc(when.toUpperCase())}</div>`;
+          }
+        }
+        const enableHtml = renderEnablePushButton();
+        content.innerHTML = enableHtml + (board
+          ? `${metaHtml}<div class="message-board-content">${board}</div>`
+          : `<div class="message-board-empty">No messages have been posted yet.</div>`);
+        content.style.opacity = 1;
+        styleLinksAsButtons();
+        markMessageBoardSeen();
+        confirmPushSubscriptionState();
+        return;
+      }
+
+      if (field === "destination_overview_content") {
+        content.innerHTML = loadFlightsAndInsurance();
+        content.style.opacity = 1;
+        applyReadMoreClamping(content);
+        await loadInsurance();
+        return;
+      }
+
+      if (field === "travel_information_content") {
+        content.innerHTML = "<div style='text-align:center; padding:30px; font-size:13px; color:#999; letter-spacing:1px;'>LOADING PAYMENTS...</div>";
+        content.style.opacity = 1;
+        const html = await loadPayments();
+        content.innerHTML = html;
+        return;
+      }
+
+      if (field === "teacher_information_content") {
+        // Teacher tab — same three-section layout as Trip Leader:
+        //   1. Resource link grid (Student Manual, Generic RA, etc.).
+        //      Configure via TEACHER_LINKS above. Hidden when all URLs
+        //      are blank on both the trip and global records.
+        //   2. The teacher_information_content rich-text block.
+        //   3. Student list, with each card opening the full
+        //      Application Information modal.
+        const linksHtml    = renderResourceLinkGrid(TEACHER_LINKS);
+        const richTextHtml = portalData[field] || "";
+        content.innerHTML  = linksHtml + richTextHtml;
+        content.style.opacity = 1;
+        styleLinksAsButtons();
+        await loadStudentList(content, { applicationModal: true });
+        return;
+      }
+
+      if (field === "trip_leader_information_content") {
+        // Trip Leader tab — three sections, top to bottom:
+        //   1. Resource link grid (Leader Manual, Risk Assessments, etc.).
+        //      Each entry renders as a small "Title + Details" card and is
+        //      hidden when its URL is blank on both the trip record and the
+        //      global record. Configure via TRIP_LEADER_LINKS above.
+        //   2. The trip_leader_information_content rich-text block from the
+        //      Portal record — anything the school types into HubSpot.
+        //   3. The student list, with each card opening a Medical
+        //      Information modal (filtered subset of the application form).
+        const linksHtml    = renderResourceLinkGrid(TRIP_LEADER_LINKS);
+        const richTextHtml = portalData[field] || "";
+        content.innerHTML  = linksHtml + richTextHtml;
+        content.style.opacity = 1;
+        styleLinksAsButtons();
+        await loadStudentList(content, { expandable: true });
+        return;
+      }
+
+      if (field === "general_information_content") {
+        // Manuals / Resources tab — render one card per populated resource
+        // from the Portal record's URL fields (see MANUAL_FIELDS at the top).
+        content.innerHTML = renderManualsCards();
+        content.style.opacity = 1;
+        return;
+      }
+
+      if (field === "family_information_content") {
+        // Document Uploads tab — list previously-uploaded files (pulled from
+        // Jotform's API by the logged-in email) and embed the upload form
+        // beneath. Form URL comes from documents_upload_form on the global
+        // Portal record (id 50506535214).
+        content.innerHTML =
+          `<div style="color:#999; font-size:13px; text-align:center; padding:30px; letter-spacing:1px;">LOADING DOCUMENTS...</div>`;
+        content.style.opacity = 1;
+        await loadDocumentsTab(content);
+        return;
+      }
+
+      if (field === "faqs") {
+        // FAQs come from the global Portal record (id 50506535214) by default;
+        // the per-trip `portalData.faqs` is used as a fallback if the global
+        // FAQ field is empty.
+        content.innerHTML = `<div style="color:#999; font-size:13px; text-align:center; padding:30px; letter-spacing:1px;">LOADING FAQs...</div>`;
+        content.style.opacity = 1;
+        try {
+          const res = await fetch(`/.netlify/functions/get-insurance`);
+          const data = await res.json();
+          const globalFaqs = (data.global_faqs || "").trim();
+          const tripFaqs = (portalData.faqs || "").trim();
+          const html = globalFaqs || tripFaqs || "No FAQs available";
+          content.innerHTML = html;
+        } catch (err) {
+          console.error("FAQ fetch error:", err);
+          content.innerHTML = portalData.faqs || "No FAQs available";
+        }
+        styleLinksAsButtons();
+        return;
+      }
+
+      let html = portalData[field] || "No content available";
+      content.innerHTML = html;
+      content.style.opacity = 1;
+      styleLinksAsButtons();
+
+      } catch (err) {
+        // Any throw from the async section-rendering above lands here so
+        // it's visible in the console AND on the page, instead of leaving
+        // the user staring at "Loading..." forever.
+        console.error(`[loadSection] field "${field}" threw:`, err);
+        const safe = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        content.innerHTML = `<div style="padding:20px; color:#c0392b; font-size:13px;">
+          <strong>Could not render this section.</strong><br>
+          Section: <code>${safe(field)}</code><br>
+          Error: <code>${safe(err && (err.message || err))}</code>
+        </div>`;
+        content.style.opacity = 1;
+      }
+    }, 100);
+  }
+
+  // Renders the Document Uploads tab — list of previously uploaded files
+  // (from one or more Jotforms) at the top, with each form embedded below.
+  //
+  // Multiple form URLs can be configured by putting them on separate lines
+  // (or comma-separated) in the `documents_upload_form` property on the
+  // global Portal record. Each URL becomes its own embedded form section,
+  // and submissions from all of them are aggregated in the documents list.
+  async function loadDocumentsTab(content) {
+    let formInputs = [];     // [{ url, formId, origin }]
+    let documents = [];
+    let formTitlesById = {}; // { formId: title }
+    let docsError = null;
+
+    try {
+      // 1. Get the configured form URL(s). Prefer the trip's portalData
+      //    (already merged with the global record via portal.js), fall back
+      //    to get-insurance only if portalData has nothing.
+      let raw = (portalData.documents_upload_form || "").trim();
+      if (!raw) {
+        try {
+          const insRes = await fetch(`/.netlify/functions/get-insurance`);
+          const insData = await insRes.json();
+          raw = insData?.documents_upload_form || "";
+        } catch (_) { /* fall through with empty raw */ }
+      }
+
+      formInputs = parseFormInputs(raw);
+
+      // 2. If we have at least one form, ask the backend for this user's
+      //    prior submissions across all of them in a single call.
+      if (formInputs.length > 0) {
+        const ids = formInputs.map(f => f.formId).filter(Boolean).join(",");
+        if (ids) {
+          const docsRes = await fetch(
+            `/.netlify/functions/get-uploaded-documents?email=${encodeURIComponent(email)}&formIds=${encodeURIComponent(ids)}`
+          );
+          const docsData = await docsRes.json();
+          if (docsData.error) docsError = docsData.error;
+          documents = Array.isArray(docsData.documents) ? docsData.documents : [];
+          (docsData.forms || []).forEach(f => {
+            if (f && f.id) formTitlesById[f.id] = f.title;
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Documents tab load error:", err);
+      docsError = err.message;
+    }
+
+    // 3. Build the page.
+    let html = "";
+
+    // a. Uploaded documents list
+    html += `<div class="docs-section">
+      <div class="docs-section-label">YOUR UPLOADED DOCUMENTS</div>`;
+    if (docsError) {
+      html += `<div class="docs-empty">Could not load uploaded documents: ${attrEsc(docsError)}</div>`;
+    } else if (documents.length === 0) {
+      html += `<div class="docs-empty">No documents uploaded yet.</div>`;
+    } else {
+      html += `<div class="docs-grid">${documents.map(renderDocumentCard).join("")}</div>`;
+    }
+    html += `</div>`;
+
+    // b. One section per configured upload form
+    if (formInputs.length === 0) {
+      html += `<div class="docs-section">
+        <div class="docs-section-label">UPLOAD A NEW DOCUMENT</div>
+        <div class="docs-form-missing">Document upload form not yet configured. Set <code>documents_upload_form</code> on the global Portal record (one Jotform URL per line for multiple forms).</div>
+      </div>`;
+    } else {
+      formInputs.forEach((f, i) => {
+        const sep = f.url.includes("?") ? "&" : "?";
+        const embedUrl = `${f.url}${sep}email=${encodeURIComponent(email)}`;
+        const title = (formTitlesById[f.formId] || "").trim();
+        const heading = title ? title.toUpperCase() : (formInputs.length > 1 ? `UPLOAD A NEW DOCUMENT (${i + 1})` : "UPLOAD A NEW DOCUMENT");
+        const iframeId = `JotFormIFrame-${f.formId}`;
+        html += `<div class="docs-section">
+          <div class="docs-section-label">${attrEsc(heading)}</div>
+          <iframe id="${iframeId}"
+                  src="${attrEsc(embedUrl)}"
+                  class="docs-jotform-iframe"
+                  title="${attrEsc(title || "Document upload form")}"
+                  frameborder="0"
+                  scrolling="no"
+                  allowtransparency="true"
+                  allow="geolocation; microphone; camera; fullscreen"></iframe>
+        </div>`;
+      });
+    }
+
+    content.innerHTML = html;
+
+    // 4. Tell Jotform's embed handler about each iframe so it can
+    //    auto-resize them to fit content (no scrolling box). The handler
+    //    script is loaded once and reused across all forms.
+    if (formInputs.length > 0) {
+      await ensureJotformEmbedHandlerLoaded();
+      formInputs.forEach(f => {
+        try {
+          if (typeof window.jotformEmbedHandler === "function") {
+            window.jotformEmbedHandler(`iframe[id='JotFormIFrame-${f.formId}']`, f.origin);
+          }
+        } catch (err) {
+          console.warn("jotformEmbedHandler failed for", f.formId, err);
+        }
+      });
+    }
+  }
+
+  // Splits the documents_upload_form HubSpot value into one entry per form URL,
+  // and pulls out the form ID + origin (so the embed handler can scope its
+  // postMessage listener to the right host — form.jotform.com / eu.jotform.com).
+  function parseFormInputs(raw) {
+    if (!raw) return [];
+    const urls = String(raw)
+      .split(/[\s,]+/)              // split on whitespace, newlines, commas
+      .map(s => s.trim())
+      .filter(s => /^https?:\/\//i.test(s));
+    const out = [];
+    for (const url of urls) {
+      const idMatch = url.match(/(\d{15,18})/);
+      if (!idMatch) continue;
+      let origin = "https://form.jotform.com";
+      try { origin = new URL(url).origin; } catch (_) { /* keep default */ }
+      out.push({ url, formId: idMatch[1], origin });
+    }
+    return out;
+  }
+
+  // Loads Jotform's embed handler script once per page load. Subsequent calls
+  // resolve immediately (the handler exposes a global `jotformEmbedHandler`).
+  function ensureJotformEmbedHandlerLoaded() {
+    if (window.__jotformHandlerPromise) return window.__jotformHandlerPromise;
+    window.__jotformHandlerPromise = new Promise((resolve) => {
+      if (typeof window.jotformEmbedHandler === "function") return resolve();
+      const s = document.createElement("script");
+      s.src = "https://cdn.jotfor.ms/s/umd/latest/for-form-embed-handler.js";
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => {
+        console.warn("Jotform embed handler script failed to load.");
+        resolve();
+      };
+      document.head.appendChild(s);
+    });
+    return window.__jotformHandlerPromise;
+  }
+
+  function renderDocumentCard(doc) {
+    // The backend returns null for fieldLabel when the upload field is generic
+    // (e.g. "Additional file upload") AND no Document Name was typed, so we
+    // skip the heading entirely rather than showing a misleading one.
+    const labelText = doc.fieldLabel ? String(doc.fieldLabel).trim() : "";
+    const showHeading = !!labelText;
+    const heading = showHeading ? labelText.toUpperCase() : "";
+    const filename = doc.filename || "Document";
+    let dateStr = "";
+    if (doc.uploadedAt) {
+      const d = new Date(doc.uploadedAt);
+      if (!isNaN(d.getTime())) {
+        dateStr = d.toLocaleDateString("en-NZ", { year: "numeric", month: "short", day: "numeric" });
+      }
+    }
+    return `
+      <div class="docs-card${showHeading ? "" : " docs-card--no-heading"}">
+        <div>
+          ${showHeading ? `<h4>${attrEsc(heading)}</h4>` : ""}
+          <div class="docs-filename">${attrEsc(filename)}</div>
+          ${dateStr ? `<div class="docs-date">Uploaded ${attrEsc(dateStr)}</div>` : ""}
+        </div>
+        <a href="${attrEsc(doc.url)}" target="_blank" rel="noopener" class="docs-link">VIEW DOCUMENT</a>
+      </div>
+    `;
+  }
+
+  async function loadTeacherList(content) {
+    try {
+      const portalId = portalData.hs_object_id;
+      const res = await fetch(`/.netlify/functions/get-teachers?portalId=${portalId}`);
+      const data = await res.json();
+
+      const teachers    = Array.isArray(data.teachers)    ? data.teachers    : [];
+      const tripLeaders = Array.isArray(data.tripLeaders) ? data.tripLeaders : [];
+      const admins      = Array.isArray(data.admins)      ? data.admins      : [];
+      if (data.error || (teachers.length === 0 && tripLeaders.length === 0 && admins.length === 0)) return;
+
+      const section = document.createElement("div");
+      section.className = "teacher-section";
+      section.innerHTML = `<div class="teacher-section-label">SCHOOL CONTACTS</div>`;
+
+      const grid = document.createElement("div");
+      grid.className = "teacher-grid";
+
+      // Roles whose admin cards should expose email + phone on the
+      // Expedition Overview. Roles NOT in this set get a card with only
+      // name + bio (no contact info shown). Per spec:
+      //   School Support Manager      → contact info VISIBLE
+      //   Expedition Planning Manager → no contact info
+      const ADMIN_ROLES_WITH_CONTACT = new Set([
+        "School Support Manager"
+      ]);
+
+      // Admins (School Support Manager / Expedition Planning Manager) —
+      // rendered FIRST so they sit at the top of SCHOOL CONTACTS. Same
+      // renderLeaderCard helper as the other roles so spacing/photo
+      // size/clamp behaviour stays aligned across the row.
+      admins.forEach(a => {
+        const bioHtml = a.bio ? applyTextBreaks(a.bio) : "";
+        const role = (a.role || "").trim();
+        const showContact = ADMIN_ROLES_WITH_CONTACT.has(role);
+        const contactHtml = (showContact && (a.email || a.phone))
+          ? `<div class="leader-card-contact">
+              ${a.email ? `<a href="mailto:${attrEsc(a.email)}">${attrEsc(a.email)}</a><br>` : ""}
+              ${a.phone ? `<a href="tel:${attrEsc(a.phone)}">${attrEsc(a.phone)}</a>` : ""}
+            </div>`
+          : "";
+        grid.innerHTML += renderLeaderCard({
+          variant: "admin",
+          roleLabel: (role || "ADMIN").toUpperCase(),
+          name: a.name,
+          photoUrl: a.photoUrl,
+          contactHtml,
+          bioHtml
+        });
+      });
+
+      // School leaders (HubSpot association label "Teacher") — full contact
+      // card with optional headshot photo at top.
+      teachers.forEach(t => {
+        grid.innerHTML += renderLeaderCard({
+          variant: "school-leader",
+          roleLabel: "SCHOOL LEADER",
+          name: t.name,
+          photoUrl: t.photoUrl,
+          contactHtml: `
+            <div class="leader-card-contact">
+              ${t.email ? `<a href="mailto:${attrEsc(t.email)}">${attrEsc(t.email)}</a><br>` : ""}
+              ${t.phone ? `<a href="tel:${attrEsc(t.phone)}">${attrEsc(t.phone)}</a>` : ""}
+            </div>`,
+          bioHtml: ""
+        });
+      });
+
+      // Expedition leaders (HubSpot association label "Trip Leader") — name +
+      // bio only (no email/phone exposed in the parent-facing view).
+      tripLeaders.forEach(l => {
+        const bioHtml = l.bio ? applyTextBreaks(l.bio) : "";
+        grid.innerHTML += renderLeaderCard({
+          variant: "expedition-leader",
+          roleLabel: "EXPEDITION LEADER",
+          name: l.name,
+          photoUrl: l.photoUrl,
+          contactHtml: "",
+          bioHtml
+        });
+      });
+
+      section.appendChild(grid);
+      content.appendChild(section);
+
+      // After the grid is in the DOM, decide which bios actually overflow
+      // their clamp and need a "Read more" toggle. Done as a post-render
+      // pass because we need real layout heights.
+      wireLeaderCardReadMore(section);
+
+    } catch (err) {
+      console.error("Teacher load error:", err);
+    }
+  }
+
+  // Fallback shown inside the leader-card photo circle when a contact has
+  // no expedition_leader_photo configured (or the configured one fails to
+  // load). Inline SVG data URI — a generic person silhouette in the
+  // Unearthed earth-tone palette. Self-contained (no external request,
+  // no CORS / hotlink concerns) and always renders cleanly inside the
+  // circular frame regardless of viewport size.
+  // To swap to a custom image (e.g. a square-cropped Unearthed icon),
+  // replace this constant with the asset URL — the rest of the cascade
+  // (object-fit + circular frame) keeps working unchanged.
+  const LEADER_PHOTO_FALLBACK_URL =
+    "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+      `<svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg">
+         <circle cx="48" cy="36" r="14" fill="#b3a892"/>
+         <path d="M14 88c0-18 15-32 34-32s34 14 34 32v8H14z" fill="#b3a892"/>
+       </svg>`
+    );
+
+  // Renders one school-leader / expedition-leader card. Same markup for
+  // both — only the variant class and role label differ — so spacing,
+  // photo size, and clamp behaviour stay aligned across the grid.
+  //
+  // Photo handling, three cascading tiers:
+  //   1. If we have a real photoUrl, render it normally.
+  //   2. If we don't, OR if (1) errors out, render the Unearthed logo in
+  //      the circle with the "is-fallback" modifier (object-fit: contain
+  //      and padding, so the wordmark fits inside the circle instead of
+  //      being cropped to a slice).
+  //   3. If (2) ALSO fails (rare — bad URL, file moved in HubSpot, etc.),
+  //      hide the <img> so we end up with just the empty tan circle
+  //      rather than a broken-image icon.
+  // The same onerror handler is attached in every case so we don't end
+  // up with an empty circle when only the third tier was needed.
+  function renderLeaderCard({ variant, roleLabel, name, photoUrl, contactHtml, bioHtml }) {
+    const fallback = attrEsc(LEADER_PHOTO_FALLBACK_URL);
+    const hasPhoto = !!photoUrl;
+    const initialSrc = hasPhoto ? attrEsc(photoUrl) : fallback;
+    const initialClass = hasPhoto
+      ? "leader-card-photo"
+      : "leader-card-photo leader-card-photo--fallback";
+
+    // Diagnostic: surface every photo URL to the console so a screenshot
+    // of mobile DevTools (or remote-inspect from desktop Safari) tells
+    // us exactly which URL the browser tried to load.
+    if (hasPhoto) console.log("[leader-card] photoUrl:", photoUrl);
+
+    // Inline-quoted JS so we can attach the same handler in both cases
+    // without templating around the differences. `data-fb` flips to "1"
+    // once we've already swapped to the fallback; the second time the
+    // handler fires we just hide the image instead of looping.
+    // Also logs the failure so mobile-only failures show up in DevTools.
+    const onErrorJs =
+      "console.warn('[leader-card] photo failed:', this.src);" +
+      "if(this.dataset.fb!=='1'){this.dataset.fb='1';this.src='" + fallback + "';this.classList.add('leader-card-photo--fallback');}" +
+      "else{this.onerror=null;this.style.display='none';}";
+
+    // Note: we deliberately DON'T set loading="lazy" here. iOS Safari
+    // (especially in installed-PWA mode) has had intermittent issues
+    // with lazy-loading cross-origin images that live below the fold —
+    // the load event sometimes never fires. Eager-loading these tiny
+    // 96×96 avatars costs almost nothing.
+    const photoHtml = `<img class="${initialClass}"`
+      + ` src="${initialSrc}"`
+      + ` alt="${attrEsc(name || roleLabel)}"`
+      + ` decoding="async"`
+      + ` data-fb="${hasPhoto ? '0' : '1'}"`
+      + ` onerror="${onErrorJs}">`;
+
+    const debugCaption = _DEBUG_PHOTOS
+      ? `<div class="leader-card-debug" style="margin-top:10px; padding:6px 8px; background:#fff3cd; border:1px solid #f1c40f; font-size:9px; line-height:1.3; word-break:break-all; color:#664d03;">
+          <strong>photoUrl:</strong> ${attrEsc(photoUrl || "(none — fallback only)")}
+        </div>`
+      : "";
+
+    return `
+      <div class="leader-card leader-card--${variant}">
+        ${photoHtml}
+        <div class="leader-card-role">${attrEsc(roleLabel)}</div>
+        <h4 class="leader-card-name">${attrEsc(name || "Unknown")}</h4>
+        ${contactHtml || ""}
+        ${bioHtml ? `<div class="leader-card-bio" data-bio><div class="leader-card-bio-inner">${bioHtml}</div></div>` : ""}
+        ${debugCaption}
+      </div>
+    `;
+  }
+
+  // Generic "Read more" clamping for any block that has the
+  // .readmore-content CSS class. Run after rendering finishes, scans
+  // each block, and only adds a toggle button when the content
+  // actually overflows the clamped height. Idempotent — safe to run
+  // multiple times on the same scope.
+  function applyReadMoreClamping(scope) {
+    const root = scope || document;
+    const blocks = root.querySelectorAll(".readmore-content");
+    blocks.forEach(block => {
+      if (block.dataset.readmoreInit === "1") return;
+      block.dataset.readmoreInit = "1";
+      // Compare full content height vs clamped wrapper. Tiny fudge
+      // guards against fractional-pixel false positives in browsers.
+      const overflows = block.scrollHeight > block.clientHeight + 2;
+      if (!overflows) {
+        // Short content — let it expand naturally so the clamp doesn't
+        // arbitrarily cut a one-line block at, say, 5.9em.
+        block.classList.add("readmore-no-clamp");
+        return;
+      }
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "readmore-toggle";
+      toggle.textContent = "Read more";
+      toggle.addEventListener("click", () => {
+        const expanded = block.classList.toggle("is-expanded");
+        toggle.textContent = expanded ? "Read less" : "Read more";
+      });
+      block.parentNode.insertBefore(toggle, block.nextSibling);
+    });
+  }
+
+  // Post-render pass that walks the cards just rendered and decides which
+  // bios actually overflow the clamp. Cards whose bio text fits get nothing
+  // extra; cards that overflow get a "Read more" link wired up to expand.
+  // We do this after layout because we need real measured heights — there
+  // is no reliable CSS-only way to "show toggle only if clamped".
+  function wireLeaderCardReadMore(section) {
+    const cards = section.querySelectorAll(".leader-card");
+    cards.forEach(card => {
+      const bio = card.querySelector("[data-bio]");
+      if (!bio) return;
+      const inner = bio.querySelector(".leader-card-bio-inner");
+      if (!inner) return;
+
+      // If the inner content is taller than the clamped wrapper, we need
+      // a toggle. A small fudge guards against fractional-pixel false
+      // positives in some browsers.
+      const overflows = inner.scrollHeight > bio.clientHeight + 2;
+      if (!overflows) return;
+
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "leader-card-readmore";
+      toggle.textContent = "Read more";
+      toggle.addEventListener("click", () => {
+        const expanded = card.classList.toggle("leader-card--expanded");
+        toggle.textContent = expanded ? "Read less" : "Read more";
+      });
+      card.appendChild(toggle);
+    });
+  }
+
+  async function loadStudentList(content, options = {}) {
+    const expandable = !!options.expandable;
+    const showAppModal = !!options.applicationModal;
+
+    const loader = document.createElement("div");
+    loader.id = "studentLoader";
+    loader.style.cssText = "text-align:center; padding:30px; font-size:13px; color:#999; letter-spacing:1px;";
+    loader.textContent = "LOADING STUDENTS...";
+    content.appendChild(loader);
+
+    try {
+      const portalId = portalData.hs_object_id;
+      const res = await fetch(`/.netlify/functions/get-students?portalId=${portalId}`);
+      const data = await res.json();
+
+      document.getElementById("studentLoader")?.remove();
+
+      if (data.error || !data.students?.length) {
+        content.insertAdjacentHTML("beforeend", "<p style='color:#999; font-size:13px; margin-top:20px;'>No students found.</p>");
+        return;
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "student-grid";
+
+      data.students.forEach(student => {
+        const paymentsHtml = student.payments.length
+          ? student.payments.map(p => `<span>$${parseFloat(p.amount).toLocaleString()}</span>`).join("")
+          : "<span>No payments recorded</span>";
+
+        const parentsHtml = student.parents.length
+          ? student.parents.map(p => `
+              <div class="parent-item">
+                <strong>${p.name}</strong><br>
+                ${p.email ? `<a href="mailto:${p.email}">${p.email}</a><br>` : ""}
+                ${p.phone ? `<a href="tel:${p.phone}">${p.phone}</a>` : ""}
+              </div>
+            `).join("")
+          : "<div class='parent-item' style='color:#999;'>No parents linked</div>";
+
+        let expandBlock = "";
+        if (expandable) {
+          // Trip leader: button opens the same popup as the teacher tab,
+          // but with the focused medical/health/passport/dietary whitelist
+          // applied so trip leaders see only the emergency-relevant view.
+          expandBlock = `
+            <button class="student-expand-btn" type="button"
+                    data-email="${attrEsc(student.email || "")}"
+                    data-student-name="${attrEsc(student.name || "")}"
+                    onclick="openApplicationModal(this.dataset.email, this.dataset.studentName, true)">
+              MEDICAL INFORMATION
+            </button>
+          `;
+        } else if (showAppModal) {
+          // Teacher tab: opens a modal with the FULL application submission.
+          expandBlock = `
+            <button class="student-expand-btn" type="button"
+                    data-email="${attrEsc(student.email || "")}"
+                    data-student-name="${attrEsc(student.name || "")}"
+                    onclick="openApplicationModal(this.dataset.email, this.dataset.studentName)">
+              APPLICATION INFORMATION
+            </button>
+          `;
+        }
+
+        const photoHtml = student.portraitUrl
+          ? `<img class="student-card-photo" src="${attrEsc(student.portraitUrl)}" alt="${attrEsc(student.name || "Student")}" decoding="async" onerror="console.warn('[student-card] photo failed:', this.src); this.style.display='none';">`
+          : "";
+
+        // Trip-leader cards focus on medical context — hide the student's
+        // email + the payment details. Other tabs (teacher) keep them.
+        const showStudentEmail = !expandable;
+        const showPayments = !expandable;
+
+        const contactInfoHtml = (showStudentEmail && student.email) || student.phone
+          ? `<div class="contact-info">
+              ${showStudentEmail && student.email ? `<a href="mailto:${attrEsc(student.email)}">${attrEsc(student.email)}</a><br>` : ""}
+              ${student.phone ? `<a href="tel:${attrEsc(student.phone)}">${attrEsc(student.phone)}</a>` : ""}
+            </div>`
+          : "";
+
+        const paymentsBlock = showPayments
+          ? `<div class="paid-badge">TOTAL PAID: $${student.totalPaid.toLocaleString()}</div>
+             <div class="payments-list">${paymentsHtml}</div>`
+          : "";
+
+        // Teachers tab only: surface the school's per-student tracking
+        // fields (`ue_student_status` and `notes`) on each card. Hidden on
+        // the Trip Leader tab (which is medical-focused) and entirely
+        // skipped if both fields are empty so we don't draw an empty box.
+        let teacherFieldsBlock = "";
+        if (showAppModal) {
+          // Slugify the status so we can target it from CSS, e.g.
+          // "Cleared" → "cleared", "Discovery Call" → "discovery-call".
+          // Any unknown values fall back to the default tan styling.
+          const statusSlug = student.status
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "");
+          const statusHtml = student.status
+            ? `<div class="student-status">
+                 <span class="student-status-label">STATUS</span>
+                 <span class="student-status-value student-status-value--${attrEsc(statusSlug)}">${attrEsc(student.status)}</span>
+               </div>`
+            : "";
+          const notesHtml = student.notes
+            ? `<div class="student-notes">
+                 <div class="student-notes-label">NOTES</div>
+                 <div class="student-notes-value">${applyTextBreaks(student.notes)}</div>
+               </div>`
+            : "";
+          if (statusHtml || notesHtml) {
+            teacherFieldsBlock = `<div class="student-school-fields">${statusHtml}${notesHtml}</div>`;
+          }
+        }
+
+        grid.innerHTML += `
+          <div class="student-card">
+            ${photoHtml}
+            <h3>${attrEsc(student.name || "Unknown")}</h3>
+            ${contactInfoHtml}
+            ${paymentsBlock}
+            ${teacherFieldsBlock}
+            <div class="parent-section">
+              <div class="parent-label">PARENTS / GUARDIANS</div>
+              ${parentsHtml}
+            </div>
+            ${expandBlock}
+          </div>
+        `;
+      });
+
+      content.appendChild(grid);
+
+    } catch (err) {
+      document.getElementById("studentLoader")?.remove();
+      content.insertAdjacentHTML("beforeend", "<p style='color:#c0392b; font-size:13px; margin-top:20px;'>Error loading students.</p>");
+    }
+  }
+
+  // Application form labels we want to surface in the trip-leader expansion.
+  // Stored as a Set so duplicate labels (the form has three "If you answered
+  // YES..." textareas in different sections) all get matched when we filter
+  // the backend's ordered field list.
+  const TRIP_LEADER_APPLICATION_FIELDS = new Set([
+    // Passport
+    "Passport Number",
+    "Country of Issue on Passport",
+    "Expiry Date",
+    "Passport Cover Page Photo",
+    // Vitals
+    "Height",
+    "Weight",
+    // Medical
+    "Respiratory Problems or Asthma?",
+    "Migraines or Headaches?",
+    "Skin Disorders?",
+    "Muscular-skeletel Problems?",
+    "Diabetes?",
+    "Claustrophobia or Motion Sickness?",
+    "Neurological problems or seizures? (i.e. autism, etc.)",
+    "Allergic reactions to Medications?",
+    "Any chronic medical conditions? (heart conditions, hearing loss, IBS, etc.)",
+    "Any chronic mental health conditions? (i.e. psychosis, bipolar disorder, etc.)",
+    "Have you ever had any suicidal ideation?",
+    "Have you ever self-harmed?",
+    "Do you currently take, or have been prescribed, any medications?",
+    "If you answered YES to any of the above, please provide more information",
+    // Health
+    "Have you attended a mental health practitioner, more than once, in the last 2 years?",
+    "Do you suffer from anxiety, depression, ADHD or other mood disorders?",
+    "Have you ever been, or are you currently being treated for substance abuse?",
+    "Do you have any physical, psychological, or chronic conditions that may impact your participation in physical activities?",
+    "Have you been admitted to hospital in the last 3 years?",
+    "Any non-food relate allergies or illnesses?",
+    "Does the student have objection to blood transfusions? (in case of medical emergency)",
+    "Does the student have objection to immunisations?",
+    // Swim
+    "Are you a confident Swimmer over 50m?",
+    // Dietary
+    "Dietary Restrictions or Preferences eg Vegetarian, celiac, gluten free?",
+    "Do you have any food allergies?"
+  ]);
+
+  // Click handler attached to each "VIEW APPLICATION DETAILS" button on a
+  // trip-leader student card. Lazily fetches the application data the first
+  // time the card is opened, then just toggles visibility on subsequent clicks.
+  async function toggleStudentExpand(button) {
+    const card = button.closest(".student-card");
+    if (!card) return;
+    const details = card.querySelector(".student-card-details");
+    if (!details) return;
+
+    const isOpen = !details.hasAttribute("hidden");
+    if (isOpen) {
+      details.setAttribute("hidden", "");
+      button.textContent = "VIEW APPLICATION DETAILS";
+      return;
+    }
+
+    button.textContent = "HIDE APPLICATION DETAILS";
+    details.removeAttribute("hidden");
+
+    if (details.dataset.loaded === "true") return;
+
+    const email = details.dataset.email || "";
+    if (!email) {
+      details.innerHTML = `<div class="application-detail-empty">No email on this student record.</div>`;
+      details.dataset.loaded = "true";
+      return;
+    }
+
+    details.innerHTML = `<div class="application-detail-empty">LOADING APPLICATION DETAILS…</div>`;
+
+    try {
+      const res = await fetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
+      const data = await res.json();
+      details.innerHTML = renderApplicationDetails(data);
+    } catch (err) {
+      console.error("Application data fetch error:", err);
+      details.innerHTML = `<div class="application-detail-empty">Could not load application details.</div>`;
+    }
+    details.dataset.loaded = "true";
+  }
+
+  function renderApplicationDetails(data) {
+    if (!data || data.error) {
+      return `<div class="application-detail-empty">Could not load application details${data?.error ? `: ${attrEsc(data.error)}` : ""}.</div>`;
+    }
+    if (!data.found) {
+      return `<div class="application-detail-empty">No application form submission found for this email.</div>`;
+    }
+
+    const all = Array.isArray(data.fields) ? data.fields : [];
+    const fields = all.filter(f => TRIP_LEADER_APPLICATION_FIELDS.has(f.label));
+
+    let metaHtml = "";
+    if (data.submittedAt) {
+      const d = new Date(data.submittedAt);
+      if (!isNaN(d.getTime())) {
+        const when = d.toLocaleDateString("en-NZ", { year: "numeric", month: "short", day: "numeric" });
+        metaHtml = `<div class="application-detail-meta">SUBMITTED ${attrEsc(when.toUpperCase())}</div>`;
+      }
+    }
+
+    if (fields.length === 0) {
+      return metaHtml + `<div class="application-detail-empty">No relevant fields found in this submission.</div>`;
+    }
+
+    return metaHtml + fields.map(renderApplicationField).join("");
+  }
+
+  function renderApplicationField(field) {
+    const label = field.label || "";
+    let valueHtml = "";
+
+    if ((field.type || "").toLowerCase() === "control_fileupload" && Array.isArray(field.value)) {
+      valueHtml = field.value.map(url =>
+        `<a href="${attrEsc(url)}" target="_blank" rel="noopener" class="application-field-file">VIEW</a>`
+      ).join("");
+      if (!valueHtml) valueHtml = `<span class="application-field-value is-no">—</span>`;
+      return `
+        <div class="application-field">
+          <div class="application-field-label">${attrEsc(label)}</div>
+          <div class="application-field-value">${valueHtml}</div>
+        </div>
+      `;
+    }
+
+    const raw = field.value == null ? "" : String(field.value).trim();
+    const isYes = /^yes$/i.test(raw);
+    const isNo = /^no$/i.test(raw);
+    const cls = isYes ? "is-yes" : (isNo ? "is-no" : "");
+    valueHtml = `<span class="application-field-value ${cls}">${attrEsc(raw || "—")}</span>`;
+
+    return `
+      <div class="application-field">
+        <div class="application-field-label">${attrEsc(label)}</div>
+        <div class="application-field-value">${valueHtml}</div>
+      </div>
+    `;
+  }
+
+  // ----- Teacher tab: full-application popup -----
+  // Shows EVERY answered field from the student's Jotform application
+  // submission in a modal. Reuses the same get-application-data endpoint
+  // as the Trip Leader inline expand, but renders the full ordered list of
+  // fields rather than the medical-focused whitelist.
+  async function openApplicationModal(email, name, tripLeaderOnly) {
+    const modal = document.getElementById("appModal");
+    const subject = document.getElementById("appModalSubject");
+    const body = document.getElementById("appModalBody");
+    const titleEl = document.getElementById("appModalTitle");
+    if (!modal || !body) return;
+
+    if (titleEl) titleEl.textContent = tripLeaderOnly ? "MEDICAL INFORMATION" : "APPLICATION INFORMATION";
+    if (subject) subject.textContent = name || "";
+    body.innerHTML = `<div class="application-detail-empty">LOADING APPLICATION…</div>`;
+    modal.hidden = false;
+    document.body.style.overflow = "hidden";
+
+    if (!email) {
+      body.innerHTML = `<div class="application-detail-empty">No email on this student record.</div>`;
+      return;
+    }
+
+    try {
+      const res = await fetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let detail = `HTTP ${res.status}`;
+        if (text) {
+          // Try to pull a JSON error message; fall back to first 200 chars.
+          try {
+            const j = JSON.parse(text);
+            if (j && (j.error || j.details)) detail += `: ${j.error || ""}${j.details ? ` — ${j.details}` : ""}`;
+          } catch (_) {
+            detail += `: ${text.slice(0, 200)}`;
+          }
+        }
+        body.innerHTML = `<div class="application-detail-empty">Could not load application details.<br><small style="color:#999; font-size:11px;">${attrEsc(detail)}</small></div>`;
+        return;
+      }
+      const data = await res.json();
+      body.innerHTML = renderFullApplicationDetails(data, !!tripLeaderOnly);
+    } catch (err) {
+      console.error("Application modal fetch error:", err);
+      body.innerHTML = `<div class="application-detail-empty">Could not load application details.<br><small style="color:#999; font-size:11px;">${attrEsc(err.message || String(err))}</small></div>`;
+    }
+  }
+
+  function closeApplicationModal() {
+    const modal = document.getElementById("appModal");
+    if (modal) modal.hidden = true;
+    document.body.style.overflow = "";
+  }
+
+  // ESC closes the modal
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      const modal = document.getElementById("appModal");
+      if (modal && !modal.hidden) closeApplicationModal();
+    }
+  });
+
+  function renderFullApplicationDetails(data, tripLeaderOnly) {
+    if (!data || data.error) {
+      return `<div class="application-detail-empty">Could not load application details${data?.error ? `: ${attrEsc(data.error)}` : ""}.</div>`;
+    }
+    if (!data.found) {
+      return `<div class="application-detail-empty">No application form submission found for this email.</div>`;
+    }
+
+    let fields = Array.isArray(data.fields) ? data.fields : [];
+    if (tripLeaderOnly) {
+      // Trip leader view: only the medical / health / passport / dietary
+      // whitelist (defined in TRIP_LEADER_APPLICATION_FIELDS near the top).
+      fields = fields.filter(f => TRIP_LEADER_APPLICATION_FIELDS.has(f.label));
+    }
+
+    let metaHtml = "";
+    if (data.submittedAt) {
+      const d = new Date(data.submittedAt);
+      if (!isNaN(d.getTime())) {
+        const when = d.toLocaleDateString("en-NZ", { year: "numeric", month: "short", day: "numeric" });
+        metaHtml = `<div class="app-modal-meta">SUBMITTED ${attrEsc(when.toUpperCase())}</div>`;
+      }
+    }
+
+    if (fields.length === 0) {
+      return metaHtml + `<div class="application-detail-empty">No relevant fields found in this submission.</div>`;
+    }
+
+    return metaHtml + fields.map(renderFullApplicationField).join("");
+  }
+
+  function renderFullApplicationField(field) {
+    const label = field.label || "";
+    const t = String(field.type || "").toLowerCase();
+
+    // File-upload fields → list of VIEW links routed through the
+    // /document-proxy edge function so they don't require a Jotform login
+    // and aren't capped at 6MB (passport scans, medical PDFs etc. routinely
+    // run 4–10MB; the edge function streams up to ~20MB).
+    if (t === "control_fileupload" && Array.isArray(field.value)) {
+      const links = field.value
+        .filter(Boolean)
+        .map(url => `<a href="/document-proxy?url=${encodeURIComponent(url)}" target="_blank" rel="noopener" class="application-field-file">VIEW</a>`)
+        .join("");
+      return `
+        <div class="application-field">
+          <div class="application-field-label">${attrEsc(label)}</div>
+          <div class="application-field-value">${links || '<span class="application-field-value is-no">—</span>'}</div>
+        </div>
+      `;
+    }
+
+    const raw = field.value == null ? "" : String(field.value).trim();
+    const isYes = /^yes$/i.test(raw);
+    const isNo = /^no$/i.test(raw);
+    const cls = isYes ? "is-yes" : (isNo ? "is-no" : "");
+    const valueHtml = `<span class="application-field-value ${cls}">${attrEsc(raw || "—")}</span>`;
+    return `
+      <div class="application-field">
+        <div class="application-field-label">${attrEsc(label)}</div>
+        <div class="application-field-value">${valueHtml}</div>
+      </div>
+    `;
+  }
+
+  function styleLinksAsButtons() {
+    const links = document.querySelectorAll("#content a:not(.event-link):not(.flight-link):not(.payment-btn):not(.payment-amount-link):not(.manual-link):not(.inline-link):not(.teacher-contact a)");
+    const colors = ["#5b7f9e", "#59a1aa", "#a9a66e", "#d6a380"];
+
+    let buttonIndex = 0;
+    links.forEach((link) => {
+      const href = (link.getAttribute("href") || "").trim();
+      // Leave email/phone/anchor links alone — they're contact actions or
+      // in-page jumps, not navigation buttons.
+      if (/^(mailto:|tel:|sms:|#)/i.test(href)) return;
+
+      link.classList.add("portal-btn");
+      if (buttonIndex === 0) {
+        link.style.background = "#e8694a";
+      } else {
+        link.style.background = colors[(buttonIndex - 1) % colors.length];
+      }
+      buttonIndex++;
+
+      if (link.href && email) {
+        try {
+          const url = new URL(link.href);
+          url.searchParams.set("email", email);
+          link.href = url.toString();
+        } catch(e) {}
+      }
+    });
+  }
+
+  // Tile visibility is FAIL-CLOSED for the two leader tiles:
+  // tripLeaderTile + teacherTile default to display:none in the HTML and
+  // are only revealed here, AFTER the server has returned a labels array
+  // that positively confirms the user is a Trip Leader / Teacher AND is
+  // not also flagged as a Student or Parent on this trip. If labels is
+  // missing, empty, or non-array (slow fetch, error, unexpected payload),
+  // the tiles stay hidden. Admins viewing a trip via /admin.html bypass
+  // the check because the server returns the full label set for them.
+  function applyVisibility(labels = []) {
+    console.log("LABELS:", labels);
+    console.log("RAW LABELS JSON:", JSON.stringify(labels));
+
+    // Guard against unexpected payload shapes (null, undefined, object).
+    const safeLabels = Array.isArray(labels) ? labels : [];
+
+    const isStudent = safeLabels.includes("Student");
+    const isParent  = safeLabels.includes("Parent");
+    const isTeacher = safeLabels.includes("Teacher");
+    const isTripLeader = safeLabels.includes("Trip Leader");
+
+    // Family / Document Uploads tile — visible to Parents AND Students.
+    // Preserve existing behaviour: hide when neither label is present.
+    if (!isParent && !isStudent) {
+      document.getElementById("familyTile").style.display = "none";
+    }
+
+    // Leader tiles: reveal ONLY on positive confirmation. Admin viewers
+    // get full access (server sends all four labels for adminViewing).
+    // A student or parent label disqualifies the user from BOTH leader
+    // tiles even if a leader label is also present — fail closed.
+    //
+    // The two leader roles are mutually exclusive on the frontend:
+    //   - Teacher label disqualifies the Expedition Leader tile.
+    //   - Trip Leader label disqualifies the School Leader tile.
+    // A contact mis-tagged with BOTH labels in HubSpot will therefore
+    // see NEITHER tile — easier to clean up the tagging in HubSpot
+    // than to leak the wrong leader content.
+    const allowAnyLeaderTile =
+      adminViewing || (!isStudent && !isParent);
+
+    const showTripLeaderTile =
+      adminViewing || (allowAnyLeaderTile && isTripLeader && !isTeacher);
+
+    const showTeacherTile =
+      adminViewing || (allowAnyLeaderTile && isTeacher && !isTripLeader);
+
+    const tripLeaderTile = document.getElementById("tripLeaderTile");
+    if (tripLeaderTile && showTripLeaderTile) {
+      tripLeaderTile.style.display = "";
+    }
+
+    const teacherTile = document.getElementById("teacherTile");
+    if (teacherTile && showTeacherTile) {
+      teacherTile.style.display = "";
+    }
+
+    // Stash the result so loadSection() can refuse to render leader-only
+    // sections if someone tries to invoke them from DevTools.
+    window.__leaderTilesAllowed = {
+      teacher:    !!(teacherTile && showTeacherTile),
+      tripLeader: !!(tripLeaderTile && showTripLeaderTile)
+    };
+  }
+
+  function logout() {
+    sessionStorage.removeItem("portalEmail");
+    sessionStorage.removeItem("adminRole");
+    sessionStorage.removeItem("firstName");
+    window.location.href = "/login.html";
+  }
+
+  // Admin viewing banner — sits at the top of the page when an admin is
+  // viewing a trip via /admin.html. Has a back-link home + a "read-only"
+  // notice. Rendered once at init time.
+  function renderAdminBanner() {
+    if (document.getElementById("adminBanner")) return;
+    const div = document.createElement("div");
+    div.id = "adminBanner";
+    div.style.cssText = "background:#2d6b74; color:white; padding:10px 18px; display:flex; align-items:center; gap:14px; font-size:12px; letter-spacing:1.2px;";
+    div.innerHTML = `
+      <span style="font-weight:600;">ADMIN VIEW</span>
+      <span style="opacity:0.85;">You are viewing this trip as an administrator.</span>
+      <a href="/admin.html" style="margin-left:auto; color:white; text-decoration:underline; font-weight:600;">← BACK TO ADMIN HOME</a>
+    `;
+    document.body.insertBefore(div, document.body.firstChild);
+  }
+
+  // Loads the qrcode-generator library on demand from jsDelivr (small,
+  // ~10KB minified, no third-party tracking). Resolves once the global
+  // `qrcode` is available. Cached after first call.
+  function ensureQrLibLoaded() {
+    if (window.__qrLibPromise) return window.__qrLibPromise;
+    window.__qrLibPromise = new Promise((resolve, reject) => {
+      if (typeof window.qrcode === "function") return resolve();
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js";
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("qrcode-generator failed to load"));
+      document.head.appendChild(s);
+    });
+    return window.__qrLibPromise;
+  }
+
+  // Renders the desktop-only QR card. Hidden by CSS on mobile / coarse-
+  // pointer devices, and dismissible (a session-storage flag persists
+  // the dismissal so we don't pop it again on every nav).
+  async function showDesktopQr() {
+    if (sessionStorage.getItem("qrDismissed") === "1") return;
+    // Skip on narrow / touch viewports too — defensive even though the
+    // CSS already handles it.
+    if (window.matchMedia("(max-width: 900px)").matches) return;
+    if (window.matchMedia("(pointer: coarse)").matches) return;
+
+    const card = document.getElementById("qrCard");
+    if (!card) return;
+    try {
+      await ensureQrLibLoaded();
+      const target = document.getElementById("qrCardImage");
+      if (!target) return;
+      // Encode the current URL so scanning lands the user on the same
+      // logged-out portal page on their phone (login flow remains the
+      // same — sessionStorage doesn't carry across devices).
+      const qr = window.qrcode(0, "M");
+      qr.addData(window.location.href);
+      qr.make();
+      target.innerHTML = qr.createImgTag(4, 4);
+      card.hidden = false;
+    } catch (err) {
+      console.warn("[qr] could not render:", err);
+    }
+  }
+
+  function dismissQrCard() {
+    const card = document.getElementById("qrCard");
+    if (card) card.hidden = true;
+    try { sessionStorage.setItem("qrDismissed", "1"); } catch (_) {}
+  }
+
+  function showInstallPrompt() {
+    const sheet = document.getElementById("installSheet");
+    const text = document.getElementById("installSheetText");
+    const dismissed = sessionStorage.getItem("installDismissed");
+
+    if (dismissed) return;
+
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isAndroid = /android/i.test(navigator.userAgent);
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+
+    if (isStandalone) return;
+
+    if (isIOS) {
+      text.textContent = "Tap the share button at the bottom of your browser, then tap 'Add to Home Screen' to install the Unearthed portal as an app.";
+    } else if (isAndroid) {
+      text.textContent = "Tap the menu button in your browser, then tap 'Add to Home Screen' to install the Unearthed portal as an app.";
+    } else {
+      return;
+    }
+
+    sheet.style.display = "block";
+    setTimeout(() => sheet.classList.add("visible"), 50);
+  }
+
+  function dismissSheet() {
+    const sheet = document.getElementById("installSheet");
+    sheet.classList.remove("visible");
+    setTimeout(() => sheet.style.display = "none", 300);
+    sessionStorage.setItem("installDismissed", "true");
+  }
+
+  init();
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/service-worker.js");
+  }
+</script>
+
+</body>
+</html>

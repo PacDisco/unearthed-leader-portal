@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invite admin · Unearthed Portal</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background: #f9f8f2;
+      color: #231f20;
+    }
+    header {
+      padding: 22px 24px;
+      background: #2d6b74;
+      color: white;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+    }
+    header a.back {
+      margin-left: auto;
+      color: white;
+      text-decoration: none;
+      font-size: 12px;
+      letter-spacing: 1.2px;
+      border: 1px solid rgba(255,255,255,0.4);
+      padding: 7px 14px;
+      transition: background 0.2s ease;
+    }
+    header a.back:hover { background: rgba(255,255,255,0.12); }
+    main {
+      max-width: 540px;
+      margin: 40px auto;
+      padding: 0 24px 60px;
+    }
+    .card {
+      background: white;
+      border: 1px solid #e2decf;
+      padding: 28px 28px 32px;
+    }
+    h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      letter-spacing: 0.4px;
+      font-weight: 600;
+    }
+    p.intro {
+      margin: 0 0 22px;
+      color: #666;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      font-weight: 600;
+      color: #666;
+      margin: 16px 0 6px;
+    }
+    input, select {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid #e2decf;
+      background: #fafaf6;
+      font-family: inherit;
+      font-size: 14px;
+      color: #231f20;
+      box-sizing: border-box;
+    }
+    input:focus, select:focus { outline: 2px solid #2d6b74; }
+    .row-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    button.submit {
+      margin-top: 22px;
+      width: 100%;
+      padding: 13px 14px;
+      background: #2d6b74;
+      color: white;
+      border: none;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+    button.submit:hover { opacity: 0.88; }
+    button.submit:disabled { opacity: 0.55; cursor: wait; }
+    .msg {
+      margin-top: 18px;
+      padding: 12px 14px;
+      font-size: 13px;
+      border-radius: 2px;
+      display: none;
+    }
+    .msg.show { display: block; }
+    .msg.ok    { background: #e8f4ee; color: #2d6b3f; border: 1px solid #c4e0cf; }
+    .msg.error { background: #fdf0ef; color: #a43a2c; border: 1px solid #f1c2bd; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>INVITE ADMIN</h1>
+  <a class="back" href="/admin.html">&larr; ADMIN HOME</a>
+</header>
+<main>
+  <div class="card">
+    <h2>Send an admin invite</h2>
+    <p class="intro">The recipient will get an email from <strong>info@unearthededucation.org</strong> with a link to set a password and sign in. They'll appear on every trip's Expedition Overview as the role you choose.</p>
+
+    <form id="inviteForm" autocomplete="off">
+      <label for="role">Role</label>
+      <select id="role" name="role" required>
+        <option value="School Support Manager">School Support Manager</option>
+        <option value="Expedition Planning Manager">Expedition Planning Manager</option>
+      </select>
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" required placeholder="name@example.com">
+
+      <div class="row-grid">
+        <div>
+          <label for="firstName">First name <span style="opacity:0.6; font-weight:400;">(optional)</span></label>
+          <input id="firstName" name="firstName" type="text" placeholder="Jamie">
+        </div>
+        <div>
+          <label for="lastName">Last name <span style="opacity:0.6; font-weight:400;">(optional)</span></label>
+          <input id="lastName" name="lastName" type="text" placeholder="Levin">
+        </div>
+      </div>
+
+      <button class="submit" type="submit">SEND INVITE</button>
+    </form>
+
+    <div id="okMsg" class="msg ok"></div>
+    <div id="errMsg" class="msg error"></div>
+  </div>
+</main>
+
+<script>
+  // Hard guard: only logged-in admins should see this page.
+  const inviterEmail = sessionStorage.getItem("portalEmail");
+  const inviterRole  = sessionStorage.getItem("adminRole");
+  if (!inviterEmail || !inviterRole) {
+    window.location.href = "/login.html";
+  }
+
+  const form = document.getElementById("inviteForm");
+  const okMsg  = document.getElementById("okMsg");
+  const errMsg = document.getElementById("errMsg");
+  const submitBtn = form.querySelector("button.submit");
+
+  function showOk(text) {
+    errMsg.classList.remove("show");
+    okMsg.textContent = text;
+    okMsg.classList.add("show");
+  }
+  function showErr(text) {
+    okMsg.classList.remove("show");
+    errMsg.textContent = text;
+    errMsg.classList.add("show");
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    okMsg.classList.remove("show");
+    errMsg.classList.remove("show");
+    submitBtn.disabled = true;
+    const original = submitBtn.textContent;
+    submitBtn.textContent = "SENDING…";
+
+    try {
+      const payload = {
+        inviterEmail,
+        inviteeEmail: document.getElementById("email").value.trim(),
+        firstName:    document.getElementById("firstName").value.trim(),
+        lastName:     document.getElementById("lastName").value.trim(),
+        role:         document.getElementById("role").value
+      };
+
+      const res = await fetch("/.netlify/functions/admin-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+
+      if (res.ok && data.success) {
+        showOk(`Invite sent to ${payload.inviteeEmail} as ${payload.role}.`);
+        form.reset();
+      } else {
+        showErr(data.error || `Could not send invite (HTTP ${res.status}).`);
+      }
+    } catch (err) {
+      showErr("Network error: " + (err.message || String(err)));
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = original;
+    }
+  });
+</script>
+</body>
+</html>

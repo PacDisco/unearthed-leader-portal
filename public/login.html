@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unearthed Portal — Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+  <meta name="theme-color" content="#2d6b74">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background: #f9f8f2;
+      color: #231f20;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      text-align: center;
+      padding: 30px 20px 24px;
+      background: #2d6b74;
+      color: white;
+    }
+    header img {
+      height: 40px;
+      display: block;
+      margin: 0 auto 16px;
+    }
+    header p {
+      font-size: 13px;
+      opacity: 0.7;
+      margin: 0;
+      letter-spacing: 2px;
+    }
+    .wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .box {
+      background: white;
+      border: 1px solid #e2decf;
+      padding: 40px;
+      width: 100%;
+      max-width: 400px;
+    }
+    .box h2 {
+      margin: 0 0 24px;
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 1px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: #666;
+    }
+    input {
+      display: block;
+      width: 100%;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      border: 1px solid #e2decf;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      background: #f9f8f2;
+      color: #231f20;
+      box-sizing: border-box;
+    }
+    input:focus {
+      outline: none;
+      border-color: #59a1aa;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #2d6b74;
+      color: white;
+      border: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+      margin-bottom: 12px;
+    }
+    button:hover { opacity: 0.85; }
+    .secondary {
+      background: transparent;
+      color: #2d6b74;
+      border: 1px solid #2d6b74;
+      margin-bottom: 0;
+    }
+    .message {
+      font-size: 13px;
+      margin-top: 16px;
+      display: none;
+      padding: 12px;
+      text-align: center;
+    }
+    .message.error { background: #fdf0ef; color: #c0392b; }
+    .message.success { background: #f0f7f4; color: #2d6b74; }
+    .divider {
+      text-align: center;
+      font-size: 11px;
+      color: #999;
+      margin: 20px 0;
+      letter-spacing: 1px;
+    }
+    @media (max-width: 480px) {
+      .box { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <img src="/Logo-Landscape-Beige.png" alt="Unearthed Education">
+  <p>STUDENT PORTAL</p>
+</header>
+
+<div class="wrap">
+  <div class="box">
+
+    <!-- LOGIN FORM -->
+    <div id="loginForm">
+      <h2>SIGN IN</h2>
+      <label>EMAIL</label>
+      <input type="email" id="email" placeholder="your@email.com" />
+      <label>PASSWORD</label>
+      <input type="password" id="password" placeholder="••••••••" />
+      <button onclick="login()">SIGN IN</button>
+      <div class="divider">OR, IF YOU'VE NEVER LOGGED IN BEFORE</div>
+      <button class="secondary" onclick="showMagicLink()">SEND MAGIC LINK</button>
+      <p style="text-align:center; font-size:12px; margin-top:16px;">
+        <a href="#" onclick="showForgot()" style="color:#2d6b74;">Forgot password?</a>
+      </p>
+      <div class="message error" id="loginError"></div>
+    </div>
+
+    <!-- MAGIC LINK / FORGOT PASSWORD FORM -->
+    <div id="magicForm" style="display:none;">
+      <h2 id="magicTitle">GET ACCESS LINK</h2>
+      <p style="font-size:13px; color:#666; margin-bottom:24px;" id="magicDesc">Enter your email and we'll send you a link to set your password.</p>
+      <label>EMAIL</label>
+      <input type="email" id="magicEmail" placeholder="your@email.com" />
+      <button onclick="sendMagicLink()">SEND LINK</button>
+      <button class="secondary" onclick="showLogin()">BACK TO SIGN IN</button>
+      <div class="message" id="magicMessage"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // If already logged in go straight to the right landing page.
+  // Admins land on /admin.html (the trip picker); everyone else on /index.html.
+  if (sessionStorage.getItem("portalEmail")) {
+    const role = sessionStorage.getItem("adminRole");
+    window.location.href = role ? "/admin.html" : "/index.html";
+  }
+
+  function showLogin() {
+    document.getElementById("loginForm").style.display = "block";
+    document.getElementById("magicForm").style.display = "none";
+  }
+
+  function showMagicLink() {
+    document.getElementById("magicTitle").textContent = "GET ACCESS LINK";
+    document.getElementById("magicDesc").textContent = "Enter your email and we'll send you a link to set your password.";
+    document.getElementById("loginForm").style.display = "none";
+    document.getElementById("magicForm").style.display = "block";
+  }
+
+  function showForgot() {
+    document.getElementById("magicTitle").textContent = "RESET PASSWORD";
+    document.getElementById("magicDesc").textContent = "Enter your email and we'll send you a link to reset your password.";
+    document.getElementById("loginForm").style.display = "none";
+    document.getElementById("magicForm").style.display = "block";
+  }
+
+  async function login() {
+    const email = document.getElementById("email").value.toLowerCase().trim();
+    const password = document.getElementById("password").value.trim();
+    const error = document.getElementById("loginError");
+
+    error.style.display = "none";
+
+    if (!email || !password) {
+      error.style.display = "block";
+      error.textContent = "Please enter your email and password.";
+      return;
+    }
+
+    try {
+      const res = await fetch("/.netlify/functions/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        sessionStorage.setItem("portalEmail", data.email || email);
+        // Stash admin metadata so admin.html and index.html can detect
+        // the role without a second login round-trip.
+        if (data.adminRole) sessionStorage.setItem("adminRole", data.adminRole);
+        else sessionStorage.removeItem("adminRole");
+        if (data.firstName) sessionStorage.setItem("firstName", data.firstName);
+        else sessionStorage.removeItem("firstName");
+        setTimeout(() => {
+          // Admins → /admin.html (trip picker); everyone else → /index.html.
+          window.location.href = data.adminRole ? "/admin.html" : "/index.html";
+        }, 100);
+      } else if (data.error === "no_password") {
+        error.style.display = "block";
+        error.textContent = "No password set yet. Use the magic link to set one.";
+      } else {
+        error.style.display = "block";
+        error.textContent = data.error || "Incorrect email or password.";
+      }
+    } catch (err) {
+      error.style.display = "block";
+      error.textContent = "Something went wrong. Please try again.";
+    }
+  }
+
+  async function sendMagicLink() {
+    const email = document.getElementById("magicEmail").value.toLowerCase().trim();
+    const msg = document.getElementById("magicMessage");
+
+    if (!email) {
+      msg.className = "message error";
+      msg.style.display = "block";
+      msg.textContent = "Please enter your email.";
+      return;
+    }
+
+    try {
+      const res = await fetch("/.netlify/functions/send-magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        msg.className = "message success";
+        msg.style.display = "block";
+        msg.textContent = "Link sent! Check your email.";
+      } else {
+        msg.className = "message error";
+        msg.style.display = "block";
+        msg.textContent = data.error || "Something went wrong.";
+      }
+    } catch (err) {
+      msg.className = "message error";
+      msg.style.display = "block";
+      msg.textContent = "Something went wrong. Please try again.";
+    }
+  }
+
+  document.addEventListener("keydown", e => {
+    if (e.key === "Enter") login();
+  });
+</script>
+</body>
+</html>
