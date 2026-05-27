@@ -176,6 +176,48 @@ export async function handler(event) {
         .map(def => pairedLabelOverrides[def.typeId] || def.label)
         .filter(l => l && l !== "Program");
 
+      // Reverse-direction backfill.
+      //
+      // HubSpot stores association labels per direction. For a paired
+      // label (e.g. "Teacher" portal→contact / "<something>" contact→portal)
+      // the side that wasn't explicitly named in HubSpot returns null
+      // from the labels endpoint. We already handle that case for
+      // "Trip Leader" via pairedLabelOverrides above, but it's a
+      // maintenance hazard — every new paired label has to be patched
+      // there manually, and a missed entry means the role goes invisible
+      // (which is exactly what happened for the Teacher tile).
+      //
+      // Instead, fetch the canonical labels from the portal→contact
+      // direction (the same direction get-teachers.js reads "Teacher" /
+      // "Trip Leader" from) and merge them in. We dedupe + drop the
+      // "Program" placeholder afterwards so we don't double-count.
+      try {
+        const reverseAssocRes = await fetch(
+          `https://api.hubapi.com/crm/v4/objects/${OBJECT}/${portalId}/associations/contacts`,
+          { headers }
+        );
+        if (reverseAssocRes.ok) {
+          const reverseAssoc = await reverseAssocRes.json();
+          const reverseLabels = [];
+          for (const r of reverseAssoc.results || []) {
+            if (String(r.toObjectId) !== String(contactId)) continue;
+            for (const t of r.associationTypes || []) {
+              if (t?.label) reverseLabels.push(t.label);
+            }
+          }
+          if (reverseLabels.length) {
+            labels = [...new Set([...labels, ...reverseLabels])]
+              .filter(l => l && l !== "Program");
+          }
+          console.log("REVERSE-DIRECTION LABELS:", reverseLabels);
+        } else {
+          console.warn("[portal] reverse-direction labels non-OK:", reverseAssocRes.status);
+        }
+      } catch (err) {
+        // Non-fatal — we still have whatever the forward direction gave us.
+        console.warn("[portal] reverse-direction labels threw:", err?.message || err);
+      }
+
       console.log("LABELS EXTRACTED:", labels);
     }
 
