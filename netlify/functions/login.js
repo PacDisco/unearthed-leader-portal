@@ -131,48 +131,84 @@ export async function handler(event) {
 // is labelled Trip Leader, or null if neither. Teacher wins ties (it's
 // the more general role for showing up in the leader portal).
 //
-// Uses CRM v4 because v3 doesn't expose association *labels*, only types.
-// `associationTypes` is an array per result; a single contact↔portal pair
-// can carry multiple labels, so we have to scan them all.
+// Implementation note: HubSpot stores association labels per direction.
+// A label set on portal→contact (e.g. "Teacher") may come back as null
+// on the contact→portal direction if the inverse label wasn't separately
+// configured. To stay aligned with the rest of the codebase
+// (get-teachers.js, the SCHOOL CONTACTS list, etc.), we resolve labels
+// in the PORTAL→CONTACT direction:
+//   1. List the contact's associated portal IDs (no labels needed here).
+//   2. For each portal, fetch its contact associations and find the row
+//      whose toObjectId matches this contact's id.
+//   3. Read labels off that row.
+// Slightly more API calls than reading the contact-side directly, but
+// it's the same direction the working "show me the teachers" code
+// already uses, so we know it's the source of truth.
 async function resolveLeaderRole(contactId, headers) {
   if (!contactId) return null;
 
   try {
-    const res = await fetch(
+    // 1. Which portals is this contact tied to? Labels aren't needed
+    //    at this stage, just the toObjectId list.
+    const portalsRes = await fetch(
       `https://api.hubapi.com/crm/v4/objects/contacts/${contactId}/associations/${PORTAL_OBJECT_ID}`,
       { headers }
     );
-
-    if (!res.ok) {
+    if (!portalsRes.ok) {
       // Fail closed: a HubSpot outage shouldn't accidentally let a
-      // parent in. The frontend will show the generic "not authorized"
-      // message; the function logs include the status for debugging.
+      // parent in.
       console.warn(
-        `[login] portal-associations lookup failed for contact ${contactId}: ${res.status}`
+        `[login] portal list lookup failed for contact ${contactId}: ${portalsRes.status}`
       );
       return null;
     }
-
-    const data = await res.json();
-    const results = data.results || [];
+    const portalsData = await portalsRes.json();
+    const portalIds = (portalsData.results || [])
+      .map(r => r.toObjectId)
+      .filter(Boolean);
+    if (portalIds.length === 0) return null;
 
     let isTeacher = false;
     let isTripLeader = false;
 
-    for (const r of results) {
-      for (const t of r.associationTypes || []) {
-        const label = String(t?.label || "").trim().toLowerCase();
-        if (!LEADER_LABELS.has(label)) continue;
-        if (label === "teacher") isTeacher = true;
-        else if (label === "trip leader") isTripLeader = true;
+    // 2. For each portal, read its contact-side associations and look
+    //    for our contact. Parallelised — a leader running multiple
+    //    trips will have a handful of portals at most.
+    await Promise.all(portalIds.map(async (portalId) => {
+      try {
+        const res = await fetch(
+          `https://api.hubapi.com/crm/v4/objects/${PORTAL_OBJECT_ID}/${portalId}/associations/contacts`,
+          { headers }
+        );
+        if (!res.ok) {
+          console.warn(
+            `[login] portal->contact lookup failed for portal ${portalId}: ${res.status}`
+          );
+          return;
+        }
+        const data = await res.json();
+        for (const r of data.results || []) {
+          if (String(r.toObjectId) !== String(contactId)) continue;
+          for (const t of r.associationTypes || []) {
+            const label = String(t?.label || "").trim().toLowerCase();
+            if (!LEADER_LABELS.has(label)) continue;
+            if (label === "teacher") isTeacher = true;
+            else if (label === "trip leader") isTripLeader = true;
+          }
+        }
+      } catch (err) {
+        console.warn(
+          `[login] portal->contact lookup threw for portal ${portalId}:`,
+          err?.message || err
+        );
       }
-    }
+    }));
 
     if (isTeacher) return "teacher";
     if (isTripLeader) return "trip_leader";
     return null;
   } catch (err) {
-    console.warn("[login] portal-associations lookup threw:", err?.message || err);
+    console.warn("[login] resolveLeaderRole threw:", err?.message || err);
     return null;
   }
 }
