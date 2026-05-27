@@ -209,10 +209,12 @@
 
       if (data.success) {
         sessionStorage.setItem("portalEmail", data.email || email);
-        // Stash admin metadata so admin.html and index.html can detect
-        // the role without a second login round-trip.
+        // Stash admin + leader metadata so admin.html and index.html can
+        // detect the role without a second login round-trip.
         if (data.adminRole) sessionStorage.setItem("adminRole", data.adminRole);
         else sessionStorage.removeItem("adminRole");
+        if (data.leaderRole) sessionStorage.setItem("leaderRole", data.leaderRole);
+        else sessionStorage.removeItem("leaderRole");
         if (data.firstName) sessionStorage.setItem("firstName", data.firstName);
         else sessionStorage.removeItem("firstName");
         setTimeout(() => {
@@ -222,6 +224,12 @@
       } else if (data.error === "no_password") {
         error.style.display = "block";
         error.textContent = "No password set yet. Use the magic link to set one.";
+      } else if (data.error === "not_authorized") {
+        // Server confirmed the password but the contact isn't a teacher,
+        // trip leader, or admin. Show a friendly message rather than the
+        // raw error code.
+        error.style.display = "block";
+        error.textContent = "This portal is for trip leaders and teachers. If you think you should have access, please contact Unearthed Education.";
       } else {
         error.style.display = "block";
         error.textContent = data.error || "Incorrect email or password.";
