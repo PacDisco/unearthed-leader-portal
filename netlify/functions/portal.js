@@ -31,11 +31,19 @@ export async function handler(event) {
       "Content-Type": "application/json"
     };
 
-    // Manual overrides for paired labels where HubSpot returns null
-    // Add new paired labels here as needed: typeId -> label name
-    const pairedLabelOverrides = {
-      28: "Trip Leader"
-    };
+    // (Previously: a `pairedLabelOverrides` map hardcoded typeId 28 -> "Trip
+    // Leader" to work around HubSpot returning a null label for the
+    // contact→portal inverse of "Trip Leader". That approach was unsafe
+    // because paired typeIds are reused — typeId 28 can be the inverse of
+    // *any* paired label depending on which side of the pair was named in
+    // HubSpot. In practice, a Teacher-only contact's association also
+    // surfaced typeId 28 and the override stamped a false "Trip Leader"
+    // onto them, which the frontend then mutually-excluded against the
+    // legitimate "Teacher" label and hid both tiles.
+    //
+    // Replaced by the reverse-direction lookup further down, which reads
+    // labels from the portal→contact direction — the same canonical source
+    // get-teachers.js uses.
 
     // ----- Resolve portalId + tab-visibility labels -----
     // Two paths:
@@ -169,23 +177,25 @@ export async function handler(event) {
 
       console.log("LABEL DEFS:", JSON.stringify(labelDefs, null, 2));
 
-      // Match typeIds to label definitions
-      // Use override map for paired labels where HubSpot returns null
+      // Match typeIds to label definitions. Any typeId whose label is
+      // null on this direction is dropped here and resolved instead by
+      // the reverse-direction lookup below.
       labels = (labelDefs.results || [])
         .filter(def => typeIds.includes(def.typeId))
-        .map(def => pairedLabelOverrides[def.typeId] || def.label)
+        .map(def => def.label)
         .filter(l => l && l !== "Program");
 
-      // Reverse-direction backfill.
+      // Reverse-direction lookup — canonical label source.
       //
       // HubSpot stores association labels per direction. For a paired
       // label (e.g. "Teacher" portal→contact / "<something>" contact→portal)
       // the side that wasn't explicitly named in HubSpot returns null
-      // from the labels endpoint. We already handle that case for
-      // "Trip Leader" via pairedLabelOverrides above, but it's a
-      // maintenance hazard — every new paired label has to be patched
-      // there manually, and a missed entry means the role goes invisible
-      // (which is exactly what happened for the Teacher tile).
+      // from the labels endpoint, so the forward-direction filter above
+      // can't see it. We don't try to guess via a typeId override map
+      // anymore — typeIds are reused between paired labels, so an
+      // override stamped the wrong label onto contacts (a Teacher-only
+      // user was getting "Trip Leader" too, which then mutually
+      // excluded both tiles).
       //
       // Instead, fetch the canonical labels from the portal→contact
       // direction (the same direction get-teachers.js reads "Teacher" /
