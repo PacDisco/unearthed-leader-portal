@@ -22,6 +22,17 @@ export default async (request, context) => {
   const url = new URL(request.url);
   const target = url.searchParams.get("url");
 
+  // Auth: require a valid portal session token. Files are referenced from
+  // <img>/<a> tags that can't send an Authorization header, so the token
+  // rides in the query string (?token=…). The URL builders in
+  // get-uploaded-documents.js and get-teachers.js append it. We verify the
+  // same HMAC-signed token the Node functions issue, but using Web Crypto
+  // because edge functions run on Deno (no Node `crypto` module).
+  const session = await verifySessionToken(url.searchParams.get("token"));
+  if (!session) {
+    return jsonResponse({ error: "Not authenticated." }, 401);
+  }
+
   if (!target) {
     return jsonResponse({ error: "Missing url" }, 400);
   }
@@ -112,6 +123,63 @@ function jsonResponse(payload, status) {
     status,
     headers: { "Content-Type": "application/json" }
   });
+}
+
+// ----- Session token verification (Web Crypto / Deno) -----
+// Mirrors netlify/functions/_shared/auth.js, which signs tokens as
+//   base64url(JSON{email,role,exp}) + "." + base64url(HMAC_SHA256(payload))
+// We can't import that Node module here (different runtime), so we
+// re-implement verification with the Web Crypto API. Returns the decoded
+// payload on success, or null on any failure (missing/invalid/expired token,
+// or missing SESSION_SECRET — fail closed).
+function b64urlToBytes(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesToB64url(bytes) {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function verifySessionToken(token) {
+  try {
+    if (!token || typeof token !== "string") return null;
+    const secret = Netlify.env.get("SESSION_SECRET");
+    if (!secret || secret.length < 16) return null; // fail closed
+
+    const dot = token.indexOf(".");
+    if (dot < 1) return null;
+    const body = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
+    const expected = bytesToB64url(new Uint8Array(mac));
+
+    // Constant-time-ish compare.
+    if (sig.length !== expected.length) return null;
+    let diff = 0;
+    for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
+    if (diff !== 0) return null;
+
+    const payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(body)));
+    if (!payload || !payload.exp || Date.now() > payload.exp) return null;
+    return payload;
+  } catch (_) {
+    return null;
+  }
 }
 
 // Bind this edge function to /document-proxy. The frontend (and the URL

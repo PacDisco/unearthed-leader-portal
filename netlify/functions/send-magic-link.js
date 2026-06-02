@@ -87,7 +87,10 @@ export async function handler(event) {
         headers,
         body: JSON.stringify({
           filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: cleanEmail }] }],
-          properties: ["email", "firstname"],
+          // portal_token_expiry lets us enforce a send cooldown without a new
+          // property: a link's expiry is always issue-time + 1h, so we can
+          // recover roughly when the last link went out.
+          properties: ["email", "firstname", "portal_token_expiry"],
         }),
       }
     );
@@ -102,10 +105,22 @@ export async function handler(event) {
     const contact = contactData.results?.[0];
 
     if (!contact) {
-      console.warn(`[send-magic-link] Email not found: ${cleanEmail}`);
+      console.warn("[send-magic-link] magic-link requested for an unknown email");
       // Don't leak existence: return 200 with a generic success message.
       // Frontend says "If your email is in our system, you'll get a link"
       // regardless of whether the account actually existed.
+      return jsonResponse(200, { success: true });
+    }
+
+    // Cooldown: don't fire off another email if we sent one to this account
+    // within the last 60s (anti-bombing). A link's expiry is issue-time + 1h,
+    // so issue-time ≈ expiry - 1h. Returns the same generic success so the
+    // response shape doesn't reveal whether a send actually happened.
+    const COOLDOWN_MS = 60 * 1000;
+    const prevExpiry = parseInt(contact.properties?.portal_token_expiry || "0", 10) || 0;
+    const prevIssuedAt = prevExpiry - 60 * 60 * 1000;
+    if (prevIssuedAt > 0 && (Date.now() - prevIssuedAt) < COOLDOWN_MS) {
+      console.warn("[send-magic-link] suppressed — within cooldown for this account");
       return jsonResponse(200, { success: true });
     }
 
@@ -135,7 +150,7 @@ export async function handler(event) {
     }
 
     // 4. Build link + send email.
-    const baseUrl   = (process.env.PORTAL_BASE_URL || "https://portal.unearthededucation.org").replace(/\/+$/, "");
+    const baseUrl   = (process.env.PORTAL_BASE_URL || "https://leaders.unearthededucation.org").replace(/\/+$/, "");
     const link      = `${baseUrl}/set-password.html?token=${token}&email=${encodeURIComponent(cleanEmail)}`;
     const firstName = contact.properties?.firstname || "there";
     const fromName  = process.env.SMTP_FROM_NAME || "Unearthed Education";

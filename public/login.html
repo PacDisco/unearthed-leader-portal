@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Unearthed Portal — Login</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -209,6 +210,9 @@
 
       if (data.success) {
         sessionStorage.setItem("portalEmail", data.email || email);
+        // Signed session token — sent as a Bearer header on every API call.
+        if (data.token) sessionStorage.setItem("portalToken", data.token);
+        else sessionStorage.removeItem("portalToken");
         // Stash admin + leader metadata so admin.html and index.html can
         // detect the role without a second login round-trip.
         if (data.adminRole) sessionStorage.setItem("adminRole", data.adminRole);

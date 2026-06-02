@@ -146,6 +146,7 @@
     [firstName, email].filter(Boolean).join(" · ");
 
   function logout() {
+    sessionStorage.removeItem("portalToken");
     sessionStorage.removeItem("portalEmail");
     sessionStorage.removeItem("adminRole");
     sessionStorage.removeItem("leaderRole");
@@ -190,7 +191,14 @@
       // Call portal.js without ?picked= so it returns the requirePicker
       // response when the user has 2+ portals. If they have only one,
       // there\'s nothing to pick — bounce them straight to /index.html.
-      const res = await fetch(`/.netlify/functions/portal?email=${encodeURIComponent(email)}`);
+      const res = await fetch(`/.netlify/functions/portal?email=${encodeURIComponent(email)}`, {
+        headers: { Authorization: "Bearer " + (sessionStorage.getItem("portalToken") || "") }
+      });
+      if (res.status === 401) {
+        try { sessionStorage.clear(); } catch (_) {}
+        window.location.href = "/login.html";
+        return;
+      }
       const data = await res.json();
       if (!res.ok || data.error) {
         const c = document.getElementById("picker");

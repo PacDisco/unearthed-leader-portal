@@ -194,9 +194,17 @@
 
       const res = await fetch("/.netlify/functions/admin-invite", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + (sessionStorage.getItem("portalToken") || "")
+        },
         body: JSON.stringify(payload)
       });
+      if (res.status === 401) {
+        try { sessionStorage.clear(); } catch (_) {}
+        window.location.href = "/login.html";
+        return;
+      }
 
       let data = {};
       try { data = await res.json(); } catch (_) {}

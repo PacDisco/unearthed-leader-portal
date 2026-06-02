@@ -19,8 +19,14 @@
 //     under that.
 //   - 10-second function timeout. Slow upstream fetches will be cut off.
 
+import { authenticate } from "./_shared/auth.js";
+
 export async function handler(event) {
   try {
+    // Auth: require a valid session (token via ?token= or Authorization header).
+    const auth = authenticate(event);
+    if (auth.response) return auth.response;
+
     const { url } = event.queryStringParameters || {};
     if (!url) {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing url" }) };

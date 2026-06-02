@@ -10,12 +10,67 @@
 // even if their password matches. The check runs AFTER password
 // verification so we don't accidentally leak which emails are
 // authorized vs. just don't-have-the-right-role.
+//
+// Security: issues a signed session token (verified by every private
+// endpoint), verifies passwords against a scrypt hash (with transparent
+// upgrade of legacy plaintext), uses a generic failure message to avoid
+// email enumeration, and throttles repeated failures.
+//
+// IMPORTANT: the session token's `role` is the admin_role (or null for
+// leaders). Leaders are deliberately NOT marked admin in the token, so the
+// "assigned-trips only" authorization in _shared/portal-access.js applies to
+// them — only true admins bypass trip scoping.
+
+import { createToken } from "./_shared/auth.js";
+import { verifyPassword, hashPassword } from "./_shared/password.js";
 
 const PORTAL_OBJECT_ID = "2-58156993";
 
 // Association labels that grant leader-portal access. Compared
 // case-insensitively to be resilient to HubSpot label edits.
 const LEADER_LABELS = new Set(["teacher", "trip leader"]);
+
+// ----- Brute-force throttle (fail-open) -----
+// Locks an account for LOCK_MS after MAX_FAILS consecutive wrong passwords.
+// Backed by two HubSpot contact properties (portal_failed_logins,
+// portal_lockout_until). If they don't exist, all of this silently no-ops.
+const MAX_FAILS = 5;
+const LOCK_MS = 15 * 60 * 1000;
+
+function hsHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}`,
+    "Content-Type": "application/json"
+  };
+}
+
+async function readThrottle(contactId) {
+  try {
+    const r = await fetch(
+      `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=portal_failed_logins,portal_lockout_until`,
+      { headers: hsHeaders() }
+    );
+    if (!r.ok) return { fails: 0, lockedUntil: 0, available: false };
+    const d = await r.json();
+    return {
+      fails: parseInt(d.properties?.portal_failed_logins || "0", 10) || 0,
+      lockedUntil: parseInt(d.properties?.portal_lockout_until || "0", 10) || 0,
+      available: true
+    };
+  } catch (_) {
+    return { fails: 0, lockedUntil: 0, available: false };
+  }
+}
+
+async function writeThrottle(contactId, props) {
+  try {
+    await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`, {
+      method: "PATCH",
+      headers: hsHeaders(),
+      body: JSON.stringify({ properties: props })
+    });
+  } catch (_) { /* fail-open */ }
+}
 
 export async function handler(event) {
   try {
@@ -29,11 +84,7 @@ export async function handler(event) {
     }
 
     const cleanEmail = email.toLowerCase().trim();
-
-    const headers = {
-      Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}`,
-      "Content-Type": "application/json"
-    };
+    const headers = hsHeaders();
 
     const contactRes = await fetch(
       "https://api.hubapi.com/crm/v3/objects/contacts/search",
@@ -42,15 +93,8 @@ export async function handler(event) {
         headers,
         body: JSON.stringify({
           filterGroups: [{
-            filters: [{
-              propertyName: "email",
-              operator: "EQ",
-              value: cleanEmail
-            }]
+            filters: [{ propertyName: "email", operator: "EQ", value: cleanEmail }]
           }],
-          // admin_role + firstname are returned to the browser so the
-          // login page can route admins straight to /admin.html and
-          // greet by name. portal_password is what we authenticate against.
           properties: ["email", "portal_password", "admin_role", "firstname"]
         })
       }
@@ -59,10 +103,28 @@ export async function handler(event) {
     const contactData = await contactRes.json();
     const contact = contactData.results?.[0];
 
+    // Generic message for both "no such email" and "wrong password" so an
+    // outsider can't probe which emails have accounts.
+    const GENERIC_FAIL = "Incorrect email or password.";
+
     if (!contact) {
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: false, error: "Email not found" })
+        body: JSON.stringify({ success: false, error: GENERIC_FAIL })
+      };
+    }
+
+    // Reject early if currently locked out. (No-op until properties exist.)
+    const throttle = contact.id
+      ? await readThrottle(contact.id)
+      : { fails: 0, lockedUntil: 0, available: false };
+    if (throttle.lockedUntil && Date.now() < throttle.lockedUntil) {
+      return {
+        statusCode: 429,
+        body: JSON.stringify({
+          success: false,
+          error: "Too many attempts. Please wait a few minutes and try again, or use the magic link."
+        })
       };
     }
 
@@ -75,11 +137,42 @@ export async function handler(event) {
       };
     }
 
-    if (storedPassword !== password) {
+    const { ok, legacy } = await verifyPassword(password, storedPassword);
+    if (!ok) {
+      if (throttle.available && contact.id) {
+        const fails = throttle.fails + 1;
+        if (fails >= MAX_FAILS) {
+          await writeThrottle(contact.id, {
+            portal_failed_logins: "0",
+            portal_lockout_until: String(Date.now() + LOCK_MS)
+          });
+        } else {
+          await writeThrottle(contact.id, { portal_failed_logins: String(fails) });
+        }
+      }
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: false, error: "Incorrect password" })
+        body: JSON.stringify({ success: false, error: GENERIC_FAIL })
       };
+    }
+
+    // Successful password — clear any accumulated failures/lockout.
+    if (throttle.available && contact.id && (throttle.fails > 0 || throttle.lockedUntil)) {
+      await writeThrottle(contact.id, { portal_failed_logins: "0", portal_lockout_until: "0" });
+    }
+
+    // Transparent migration of legacy plaintext passwords to a hash.
+    if (legacy && contact.id) {
+      try {
+        const newHash = await hashPassword(password);
+        await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contact.id}`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ properties: { portal_password: newHash } })
+        });
+      } catch (e) {
+        console.warn("[login] password hash upgrade failed (non-fatal):", e?.message || e);
+      }
     }
 
     // ---- Authorization gate ----
@@ -94,10 +187,7 @@ export async function handler(event) {
       if (!leaderRole) {
         return {
           statusCode: 200,
-          body: JSON.stringify({
-            success: false,
-            error: "not_authorized"
-          })
+          body: JSON.stringify({ success: false, error: "not_authorized" })
         };
       }
     }
@@ -107,59 +197,41 @@ export async function handler(event) {
       body: JSON.stringify({
         success: true,
         email: cleanEmail,
-        // Optional fields. The login page checks adminRole to decide
-        // whether to land the user on /admin.html or the regular portal.
+        // Signed session token. role = admin_role for admins, null for
+        // leaders (so trip-scoping in portal-access.js applies to leaders).
+        token: createToken({ email: cleanEmail, role: adminRole }),
         adminRole,
         // "teacher" | "trip_leader" | null (null when the user is an admin).
-        // Surface this so the frontend can render role-aware UI without a
-        // second round-trip to HubSpot.
         leaderRole,
         firstName: contact.properties?.firstname || null
       })
     };
 
   } catch (err) {
+    console.error("[login] error:", err?.message || err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      body: JSON.stringify({ error: "Server error" })
     };
   }
 }
 
 // Looks at every Portal this contact is associated to and returns
 // "teacher" if any association is labelled Teacher, "trip_leader" if any
-// is labelled Trip Leader, or null if neither. Teacher wins ties (it's
-// the more general role for showing up in the leader portal).
+// is labelled Trip Leader, or null if neither. Teacher wins ties.
 //
-// Implementation note: HubSpot stores association labels per direction.
-// A label set on portal→contact (e.g. "Teacher") may come back as null
-// on the contact→portal direction if the inverse label wasn't separately
-// configured. To stay aligned with the rest of the codebase
-// (get-teachers.js, the SCHOOL CONTACTS list, etc.), we resolve labels
-// in the PORTAL→CONTACT direction:
-//   1. List the contact's associated portal IDs (no labels needed here).
-//   2. For each portal, fetch its contact associations and find the row
-//      whose toObjectId matches this contact's id.
-//   3. Read labels off that row.
-// Slightly more API calls than reading the contact-side directly, but
-// it's the same direction the working "show me the teachers" code
-// already uses, so we know it's the source of truth.
+// Resolves labels in the PORTAL→CONTACT direction (the same direction
+// get-teachers.js reads from), since contact→portal labels can come back null.
 async function resolveLeaderRole(contactId, headers) {
   if (!contactId) return null;
 
   try {
-    // 1. Which portals is this contact tied to? Labels aren't needed
-    //    at this stage, just the toObjectId list.
     const portalsRes = await fetch(
       `https://api.hubapi.com/crm/v4/objects/contacts/${contactId}/associations/${PORTAL_OBJECT_ID}`,
       { headers }
     );
     if (!portalsRes.ok) {
-      // Fail closed: a HubSpot outage shouldn't accidentally let a
-      // parent in.
-      console.warn(
-        `[login] portal list lookup failed for contact ${contactId}: ${portalsRes.status}`
-      );
+      console.warn(`[login] portal list lookup failed for contact ${contactId}: ${portalsRes.status}`);
       return null;
     }
     const portalsData = await portalsRes.json();
@@ -171,9 +243,6 @@ async function resolveLeaderRole(contactId, headers) {
     let isTeacher = false;
     let isTripLeader = false;
 
-    // 2. For each portal, read its contact-side associations and look
-    //    for our contact. Parallelised — a leader running multiple
-    //    trips will have a handful of portals at most.
     await Promise.all(portalIds.map(async (portalId) => {
       try {
         const res = await fetch(
@@ -181,9 +250,7 @@ async function resolveLeaderRole(contactId, headers) {
           { headers }
         );
         if (!res.ok) {
-          console.warn(
-            `[login] portal->contact lookup failed for portal ${portalId}: ${res.status}`
-          );
+          console.warn(`[login] portal->contact lookup failed for portal ${portalId}: ${res.status}`);
           return;
         }
         const data = await res.json();
@@ -197,10 +264,7 @@ async function resolveLeaderRole(contactId, headers) {
           }
         }
       } catch (err) {
-        console.warn(
-          `[login] portal->contact lookup threw for portal ${portalId}:`,
-          err?.message || err
-        );
+        console.warn(`[login] portal->contact lookup threw for portal ${portalId}:`, err?.message || err);
       }
     }));
 

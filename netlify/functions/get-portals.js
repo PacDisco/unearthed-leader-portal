@@ -17,15 +17,21 @@
 //     adminRole from sessionStorage before navigating to /admin.html. If
 //     this is ever exposed at a stable URL we'll add server-side gating.
 
+import { authenticateAdmin } from "./_shared/auth.js";
+
 const PORTAL_OBJECT_ID = "2-58156993";
 const GLOBAL_PORTAL_ID = "50506535214";
 
 export async function handler(event) {
   try {
-    const email = (event.queryStringParameters || {}).email;
-    if (!email) {
-      return jsonResponse(400, { error: "Missing email" });
-    }
+    // Auth: admin only. This lists EVERY trip, so it must not be reachable by
+    // a non-admin (the old version had no server-side check at all). We take
+    // the email from the verified session, not the querystring, so the
+    // "your trips" decoration can't be spoofed either.
+    const auth = authenticateAdmin(event);
+    if (auth.response) return auth.response;
+    const email = auth.session.email;
+
     if (!process.env.HUBSPOT_API_KEY) {
       return jsonResponse(500, { error: "HUBSPOT_API_KEY is not set" });
     }

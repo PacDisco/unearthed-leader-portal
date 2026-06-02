@@ -14,6 +14,8 @@
 //
 // Required env var: HUBSPOT_API_KEY (write access to contacts).
 
+import { authenticateSelf } from "./_shared/auth.js";
+
 export async function handler(event) {
   try {
     if (event.httpMethod !== "POST") {
@@ -32,6 +34,10 @@ export async function handler(event) {
     if (!email || !subscription || !subscription.endpoint) {
       return jsonResponse(400, { error: "Missing email or subscription.endpoint" });
     }
+
+    // Auth: you may only save a push subscription against your own contact.
+    const auth = authenticateSelf(event, email);
+    if (auth.response) return auth.response;
 
     const headers = {
       Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}`,

@@ -17,6 +17,9 @@
 //                   application-form versions are spun up so old students
 //                   don't drop out of the lookup.
 
+import { authenticate } from "./_shared/auth.js";
+import { assertEmailAccess } from "./_shared/portal-access.js";
+
 const DEFAULT_FORM_IDS = (process.env.JOTFORM_APPLICATION_FORM_ID
   || "251396787451873,253477140703050,260388618557066")
   .split(",").map(s => s.trim()).filter(Boolean);
@@ -28,6 +31,14 @@ export async function handler(event) {
     if (!email) {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing email" }) };
     }
+
+    // Auth: signed in, and either this person, an admin, or staff (Teacher/
+    // Trip Leader) on a trip they belong to — leaders view their students'
+    // application/medical data.
+    const auth = authenticate(event);
+    if (auth.response) return auth.response;
+    const access = await assertEmailAccess(auth.session, email);
+    if (access) return access;
     if (!process.env.JOTFORM_API_KEY) {
       return {
         statusCode: 500,
@@ -103,8 +114,8 @@ export async function handler(event) {
     };
 
   } catch (err) {
-    console.error("ERROR:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    console.error("[get-application-data] ERROR:", err?.message || err);
+    return { statusCode: 500, body: JSON.stringify({ error: "Server error" }) };
   }
 }
 

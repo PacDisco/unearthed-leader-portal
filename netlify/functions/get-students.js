@@ -10,8 +10,15 @@
 // value out of each deal payment_N string ("250, pi_xxx, 2026-03-12"), and
 // sums them.
 
+import { authenticate, tokenFromEvent } from "./_shared/auth.js";
+import { assertPortalAccess } from "./_shared/portal-access.js";
+
 export async function handler(event) {
   try {
+    // Auth: signed in.
+    const auth = authenticate(event);
+    if (auth.response) return auth.response;
+
     const { portalId } = event.queryStringParameters || {};
 
     if (!portalId) {
@@ -20,6 +27,12 @@ export async function handler(event) {
         body: JSON.stringify({ error: "Missing portalId" })
       };
     }
+
+    // Authorization: caller must be staff (Teacher/Trip Leader) on this trip,
+    // or an admin. This is the most sensitive endpoint — it returns the whole
+    // student roster with portraits and payment totals.
+    const access = await assertPortalAccess(auth.session, portalId);
+    if (access) return access;
 
     const OBJECT = "2-58156993";
     const headers = {
@@ -34,12 +47,10 @@ export async function handler(event) {
     );
 
     if (!assocRes.ok) {
+      console.error("[get-students] associations fetch failed:", (await assocRes.text().catch(() => "")).slice(0, 300));
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Portal contact associations fetch failed",
-          details: await assocRes.text()
-        })
+        body: JSON.stringify({ error: "Portal contact associations fetch failed" })
       };
     }
 
@@ -82,12 +93,10 @@ export async function handler(event) {
     );
 
     if (!studentsRes.ok) {
+      console.error("[get-students] student batch-read failed:", (await studentsRes.text().catch(() => "")).slice(0, 300));
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Student batch-read failed",
-          details: await studentsRes.text()
-        })
+        body: JSON.stringify({ error: "Student batch-read failed" })
       };
     }
 
@@ -123,6 +132,11 @@ export async function handler(event) {
     );
 
     const portraitsByEmail = await portraitsPromise;
+    // Append the caller's session token to portrait proxy URLs so the
+    // (auth-gated) /document-proxy can verify the viewer — <img> tags can't
+    // send an Authorization header.
+    const callerToken = tokenFromEvent(event);
+    const tokenSuffix = callerToken ? `&token=${encodeURIComponent(callerToken)}` : "";
     const students = studentsRaw.map(s => {
       const key = (s.email || "").toLowerCase().trim();
       const rawUrl = key ? portraitsByEmail.get(key) : null;
@@ -135,7 +149,7 @@ export async function handler(event) {
         // response cap. The edge function streams the upstream body straight
         // through, supporting files up to ~20MB. Null when there's no match.
         portraitUrl: rawUrl
-          ? `/document-proxy?url=${encodeURIComponent(rawUrl)}`
+          ? `/document-proxy?url=${encodeURIComponent(rawUrl)}${tokenSuffix}`
           : null
       };
     });
@@ -149,10 +163,10 @@ export async function handler(event) {
     };
 
   } catch (err) {
-    console.error("ERROR:", err);
+    console.error("[get-students] ERROR:", err?.message || err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      body: JSON.stringify({ error: "Server error" })
     };
   }
 }

@@ -1,5 +1,11 @@
+import { authenticate } from "./_shared/auth.js";
+
 export async function handler(event) {
   try {
+    // Auth: any signed-in user (shared content, but kept behind login).
+    const auth = authenticate(event);
+    if (auth.response) return auth.response;
+
     const OBJECT = "2-58156993";
     const FIXED_ID = "50506535214";
     const headers = {
@@ -13,12 +19,10 @@ export async function handler(event) {
     );
 
     if (!res.ok) {
+      console.error("[get-insurance] fetch failed:", (await res.text().catch(() => "")).slice(0, 300));
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Fixed object fetch failed",
-          details: await res.text()
-        })
+        body: JSON.stringify({ error: "Fixed object fetch failed" })
       };
     }
 
@@ -43,7 +47,7 @@ export async function handler(event) {
     console.error("ERROR:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      body: JSON.stringify({ error: "Server error" })
     };
   }
 }

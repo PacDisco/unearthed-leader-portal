@@ -1,0 +1,35 @@
+# Security response headers.
+#
+# This file ONLY sets headers — it intentionally does not declare build,
+# publish, functions, or edge-function settings, so it won't change how the
+# site currently builds/deploys (Netlify keeps your existing UI settings for
+# anything not specified here).
+#
+# The Content-Security-Policy below was built from the external resources the
+# portal actually uses:
+#   - Google Fonts            (fonts.googleapis.com / fonts.gstatic.com)
+#   - QR code library         (cdn.jsdelivr.net)
+#   - Jotform embed handler   (cdn.jotfor.ms) + Jotform upload-form iframes (*.jotform.com)
+#   - Document/photo proxy    (same-origin /document-proxy) and CDN images
+#
+# NOTE: 'unsafe-inline' is required in script-src because the portal uses
+# inline <script> blocks and inline onclick handlers. It weakens XSS defence
+# but the policy still blocks cross-origin script injection, framing
+# (clickjacking), and MIME sniffing. Removing 'unsafe-inline' later would need
+# the inline scripts/handlers moved into external files or given nonces.
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Keep the whole portal out of search engines. Applied as a header (not
+    # just robots.txt) so crawlers that fetch a page are explicitly told not
+    # to index or follow it. We deliberately do NOT block crawling in
+    # robots.txt, because a blocked page can still get indexed by URL — the
+    # crawler has to be allowed to fetch the page in order to see "noindex".
+    X-Robots-Tag = "noindex, nofollow"
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), payment=()"
+    Content-Security-Policy = "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.jotfor.ms; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.jotform.com https://cdn.jotfor.ms; frame-src 'self' https://*.jotform.com https://*.jotfor.ms; frame-ancestors 'self'"

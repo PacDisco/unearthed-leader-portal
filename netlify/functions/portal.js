@@ -1,3 +1,5 @@
+import { authenticateSelf, authenticateAdmin } from "./_shared/auth.js";
+
 export async function handler(event) {
   try {
     const params = event.queryStringParameters || {};
@@ -19,6 +21,20 @@ export async function handler(event) {
         statusCode: 400,
         body: JSON.stringify({ error: "Missing email or portalId" })
       };
+    }
+
+    // ----- Auth -----
+    // Admin viewing path (?portalId=) can load ANY trip, so it requires a real
+    // admin session. The regular ?email= path requires that you are signed in
+    // AS that email (admins may pass any email). Token issuance is gated to
+    // staff/admins in login.js + set-password.js, so only authorized users
+    // ever reach this point.
+    if (adminPortalId) {
+      const auth = authenticateAdmin(event);
+      if (auth.response) return auth.response;
+    } else {
+      const auth = authenticateSelf(event, email);
+      if (auth.response) return auth.response;
     }
 
     const OBJECT = "2-58156993";
@@ -82,19 +98,16 @@ export async function handler(event) {
       );
 
       if (!contactRes.ok) {
+        console.error("[portal] contact fetch failed:", (await contactRes.text().catch(() => "")).slice(0, 300));
         return {
           statusCode: 500,
-          body: JSON.stringify({
-            error: "Contact fetch failed",
-            details: await contactRes.text()
-          })
+          body: JSON.stringify({ error: "Contact fetch failed" })
         };
       }
 
       const contactData = await contactRes.json();
       const contactId = contactData.results?.[0]?.id;
 
-      console.log("CONTACT ID:", contactId);
 
       if (!contactId) {
         return {
@@ -110,18 +123,15 @@ export async function handler(event) {
       );
 
       if (!assocRes.ok) {
+        console.error("[portal] association fetch failed:", (await assocRes.text().catch(() => "")).slice(0, 300));
         return {
           statusCode: 500,
-          body: JSON.stringify({
-            error: "Association fetch failed",
-            details: await assocRes.text()
-          })
+          body: JSON.stringify({ error: "Association fetch failed" })
         };
       }
 
       const assocData = await assocRes.json();
 
-      console.log("RAW ASSOC RESULTS:", JSON.stringify(assocData.results, null, 2));
 
       if (!assocData.results || assocData.results.length === 0) {
         return {
@@ -160,7 +170,6 @@ export async function handler(event) {
         portalId = associatedPortalIds[0];
       }
 
-      console.log("PORTAL ID:", portalId);
 
       // Get typeIds from this association
       const typeIds = assocData.results
@@ -175,7 +184,6 @@ export async function handler(event) {
 
       const labelDefs = await labelDefsRes.json();
 
-      console.log("LABEL DEFS:", JSON.stringify(labelDefs, null, 2));
 
       // Match typeIds to label definitions. Any typeId whose label is
       // null on this direction is dropped here and resolved instead by
@@ -219,7 +227,6 @@ export async function handler(event) {
             labels = [...new Set([...labels, ...reverseLabels])]
               .filter(l => l && l !== "Program");
           }
-          console.log("REVERSE-DIRECTION LABELS:", reverseLabels);
         } else {
           console.warn("[portal] reverse-direction labels non-OK:", reverseAssocRes.status);
         }
@@ -228,7 +235,6 @@ export async function handler(event) {
         console.warn("[portal] reverse-direction labels threw:", err?.message || err);
       }
 
-      console.log("LABELS EXTRACTED:", labels);
     }
 
     // 3. Get portal content from BOTH the trip's record AND the global
@@ -322,12 +328,10 @@ export async function handler(event) {
     ]);
 
     if (!portalRes.ok) {
+      console.error("[portal] portal fetch failed:", (await portalRes.text().catch(() => "")).slice(0, 300));
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Portal fetch failed",
-          details: await portalRes.text()
-        })
+        body: JSON.stringify({ error: "Portal fetch failed" })
       };
     }
 
@@ -348,7 +352,6 @@ export async function handler(event) {
     const tripProps = portal.properties || {};
     const merged = mergeWithGlobalFallback(tripProps, globalProps);
 
-    console.log("PORTAL DATA (merged):", JSON.stringify(merged, null, 2));
 
     // 4. Return data. `availableTripCount` lets the frontend decide
     //    whether to show a "Switch trip" link in the header (only
@@ -368,13 +371,10 @@ export async function handler(event) {
     };
 
   } catch (err) {
-    console.error("ERROR:", err);
+    console.error("[portal] ERROR:", err?.message || err);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Server error",
-        details: err.message
-      })
+      body: JSON.stringify({ error: "Server error" })
     };
   }
 }

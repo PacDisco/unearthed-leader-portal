@@ -21,6 +21,7 @@
 
 import crypto from "crypto";
 import nodemailer from "nodemailer";
+import { authenticateAdmin } from "./_shared/auth.js";
 
 // Roles the FORM is allowed to ASSIGN to a new admin. The form's dropdown
 // is hardcoded to these two — these are the only roles that show up as
@@ -65,11 +66,19 @@ export async function handler(event) {
       return jsonResponse(500, { error: `Server is not configured (${missing.join(", ")}).` });
     }
 
+    // Auth: only an admin may invite admins. We take the inviter's identity
+    // from the VERIFIED session token, not from a body field — the old code
+    // trusted body.inviterEmail, so anyone could claim to be an admin by
+    // sending a known admin's email. The live admin_role re-check below then
+    // also catches a role that was revoked after the token was issued.
+    const auth = authenticateAdmin(event);
+    if (auth.response) return auth.response;
+
     let body;
     try { body = JSON.parse(event.body || "{}"); }
     catch (_) { return jsonResponse(400, { error: "Invalid JSON body" }); }
 
-    const inviterEmail = (body.inviterEmail || "").toLowerCase().trim();
+    const inviterEmail = auth.session.email;
     const inviteeEmail = (body.inviteeEmail || "").toLowerCase().trim();
     const firstName    = (body.firstName    || "").trim();
     const lastName     = (body.lastName     || "").trim();
@@ -158,7 +167,7 @@ export async function handler(event) {
     }
 
     // 4. Email the invite link.
-    const baseUrl = (process.env.PORTAL_BASE_URL || "https://portal.unearthededucation.org").replace(/\/+$/, "");
+    const baseUrl = (process.env.PORTAL_BASE_URL || "https://leaders.unearthededucation.org").replace(/\/+$/, "");
     const link    = `${baseUrl}/set-password.html?token=${token}&email=${encodeURIComponent(inviteeEmail)}`;
     const fromName = process.env.SMTP_FROM_NAME || "Unearthed Education";
     const greetingName = firstName || invitee.properties?.firstname || "there";

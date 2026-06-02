@@ -44,6 +44,12 @@
 //                                    sepa_debit       → EUR
 //                                    acss_debit       → CAD
 
+import { authenticate, isAdmin } from "./_shared/auth.js";
+import { assertEmailAccess } from "./_shared/portal-access.js";
+
+const PORTAL_OBJECT = "2-58156993";
+const GLOBAL_PORTAL_ID = "50506535214";
+
 export async function handler(event) {
   try {
     if (event.httpMethod !== "POST") {
@@ -76,23 +82,65 @@ export async function handler(event) {
     const {
       email,
       paymentIndex,
-      baseAmount,
-      chargeAmount,
+      portalId,
       description,
       paymentType: rawPaymentType
+      // NOTE: baseAmount / chargeAmount from the client are intentionally
+      // ignored now. The amount is derived server-side from HubSpot so a
+      // user can't tamper with the price they pay.
     } = body;
 
     if (!email) {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing email" }) };
     }
-    const charge = parseFloat(chargeAmount);
-    if (!isFinite(charge) || charge <= 0) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Missing or invalid chargeAmount" }) };
-    }
+
+    // Auth: signed in, and either this person, an admin, or staff on a trip
+    // they belong to.
+    const auth = authenticate(event);
+    if (auth.response) return auth.response;
+    const session = auth.session;
+    const access = await assertEmailAccess(session, email);
+    if (access) return access;
 
     // Normalise paymentType. Anything other than "direct_debit" is treated
     // as a card payment to keep the original behaviour as the safe default.
     const paymentType = rawPaymentType === "direct_debit" ? "direct_debit" : "card";
+
+    // ----- Server-authoritative amount -----
+    // We do NOT trust the amount sent by the browser. Instead we read the
+    // scheduled installment amount (payment_amount_N) straight off the
+    // verified user's Portal record in HubSpot, and apply the 3% card fee
+    // here. This closes a price-tampering hole where the client could ask
+    // to be charged any amount it liked.
+    const idx = parseInt(paymentIndex, 10);
+    if (!Number.isInteger(idx) || idx < 1 || idx > 10) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Missing or invalid paymentIndex (must be 1–10)" }) };
+    }
+    if (!process.env.HUBSPOT_API_KEY) {
+      return { statusCode: 500, body: JSON.stringify({ error: "HUBSPOT_API_KEY is not set" }) };
+    }
+
+    let base;
+    try {
+      base = await resolveScheduledAmount({
+        email: String(email).toLowerCase().trim(),
+        portalId: portalId ? String(portalId) : null,
+        index: idx,
+        admin: isAdmin(session)
+      });
+    } catch (err) {
+      const status = err.statusCode || 502;
+      return { statusCode: status, body: JSON.stringify({ error: err.message || "Could not resolve payment amount" }) };
+    }
+
+    // Apply the card processing fee server-side (direct debit pays base).
+    const feeRate = paymentType === "card" ? 0.03 : 0;
+    const charge = Math.round(base * (1 + feeRate) * 100) / 100;
+    if (!isFinite(charge) || charge <= 0) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Resolved payment amount is invalid" }) };
+    }
+    // baseAmount is recomputed server-side for the metadata below.
+    const baseAmount = base;
 
     // Resolve which Stripe payment_method_types we'll offer at checkout.
     // For card it's a single fixed list. For direct debit we read from the
@@ -123,11 +171,12 @@ export async function handler(event) {
       paymentMethodTypes = envList;
     }
 
-    // Origin = where to send the user back to after payment.
-    const origin =
-      event.headers?.origin ||
-      event.headers?.referer?.split("/").slice(0, 3).join("/") ||
-      "https://portal.unearthededucation.org";
+    // Where to send the user back to after payment. Pinned to a known base
+    // URL (env override allowed for deploy previews) rather than reflecting
+    // the request's Origin/Referer header — otherwise a crafted request could
+    // make Stripe redirect the payer to an attacker-controlled site.
+    const origin = (process.env.PORTAL_BASE_URL || "https://leaders.unearthededucation.org")
+      .replace(/\/+$/, "");
 
     const currency = (process.env.STRIPE_CURRENCY || "nzd").toLowerCase();
     const unitAmountCents = Math.round(charge * 100);
@@ -147,8 +196,7 @@ export async function handler(event) {
       return {
         statusCode: 502,
         body: JSON.stringify({
-          error: "Could not resolve a Stripe customer for this email",
-          details: err.message
+          error: "Could not resolve a Stripe customer for this email"
         })
       };
     }
@@ -238,10 +286,10 @@ export async function handler(event) {
     };
 
   } catch (err) {
-    console.error("ERROR:", err);
+    console.error("[create-checkout-session] ERROR:", err?.message || err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      body: JSON.stringify({ error: "Server error" })
     };
   }
 }
@@ -293,4 +341,96 @@ async function findOrCreateStripeCustomer(email, secretKey) {
   }
 
   return createData.id;
+}
+
+// ----- Server-authoritative payment amount -----
+// Resolves the scheduled base amount (before card fee) for payment N from
+// HubSpot, after verifying the caller is actually associated with the trip.
+// Throws an Error with `.statusCode` on any problem.
+async function resolveScheduledAmount({ email, portalId, index, admin }) {
+  const headers = {
+    Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}`,
+    "Content-Type": "application/json"
+  };
+
+  // 1. Resolve the contact id.
+  const contactRes = await fetch(
+    "https://api.hubapi.com/crm/v3/objects/contacts/search",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }],
+        properties: ["email"]
+      })
+    }
+  );
+  if (!contactRes.ok) throw amountError(502, "Could not look up your account.");
+  const contactData = await contactRes.json();
+  const contactId = contactData.results?.[0]?.id;
+  if (!contactId) throw amountError(404, "Account not found.");
+
+  // 2. List the portals this contact is associated with.
+  const assocRes = await fetch(
+    `https://api.hubapi.com/crm/v4/objects/contacts/${contactId}/associations/${PORTAL_OBJECT}`,
+    { headers }
+  );
+  const assoc = assocRes.ok ? await assocRes.json() : { results: [] };
+  const myPortalIds = (assoc.results || []).map(r => String(r.toObjectId)).filter(Boolean);
+
+  // 3. Decide which portal to price against — and make sure the caller is
+  //    entitled to it. Admins may price any portal; everyone else must be
+  //    associated with the one they're paying for.
+  let targetPortalId = portalId;
+  if (admin) {
+    if (!targetPortalId) throw amountError(400, "Missing portalId.");
+  } else if (targetPortalId) {
+    if (!myPortalIds.includes(targetPortalId)) {
+      throw amountError(403, "That trip isn't associated with your account.");
+    }
+  } else if (myPortalIds.length === 1) {
+    targetPortalId = myPortalIds[0];
+  } else {
+    throw amountError(400, "Could not determine which trip to pay for. Please reopen the payment from your trip page.");
+  }
+
+  // 4. Read payment_amount_<index>, falling back to the global defaults record.
+  const prop = `payment_amount_${index}`;
+  const tripRes = await fetch(
+    `https://api.hubapi.com/crm/v3/objects/${PORTAL_OBJECT}/${targetPortalId}?properties=${prop}`,
+    { headers }
+  );
+  if (!tripRes.ok) throw amountError(502, "Could not read the payment schedule.");
+  const tripData = await tripRes.json();
+  let raw = tripData.properties?.[prop];
+
+  if (raw == null || String(raw).trim() === "") {
+    const gRes = await fetch(
+      `https://api.hubapi.com/crm/v3/objects/${PORTAL_OBJECT}/${GLOBAL_PORTAL_ID}?properties=${prop}`,
+      { headers }
+    );
+    if (gRes.ok) {
+      const g = await gRes.json();
+      raw = g.properties?.[prop];
+    }
+  }
+
+  const num = parseAmount(raw);
+  if (num == null || num <= 0) {
+    throw amountError(400, `No scheduled amount is set for payment ${index}.`);
+  }
+  return num;
+}
+
+// Parse a HubSpot amount field that may contain currency symbols/commas.
+function parseAmount(v) {
+  if (v == null) return null;
+  const n = parseFloat(String(v).replace(/[^0-9.]/g, ""));
+  return isFinite(n) ? n : null;
+}
+
+function amountError(statusCode, message) {
+  const e = new Error(message);
+  e.statusCode = statusCode;
+  return e;
 }

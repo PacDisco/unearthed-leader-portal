@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#2d6b74">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1651,6 +1652,23 @@
   const email = sessionStorage.getItem("portalEmail");
   if (!email) window.location.href = "/login.html";
 
+  // Authenticated fetch: attaches the signed session token so the serverless
+  // functions can verify the caller. On 401 (expired/invalid session) we
+  // clear state and return to login. Other statuses pass through.
+  function apiFetch(url, opts = {}) {
+    const headers = Object.assign({}, opts.headers || {}, {
+      Authorization: "Bearer " + (sessionStorage.getItem("portalToken") || "")
+    });
+    return window.fetch(url, Object.assign({}, opts, { headers })).then(res => {
+      if (res.status === 401) {
+        try { sessionStorage.clear(); } catch (_) {}
+        window.location.href = "/login.html";
+        return new Promise(() => {});
+      }
+      return res;
+    });
+  }
+
   // ----- Admin viewing mode -----
   // Admins land on /admin.html after login, then click a trip to view. We
   // get back here with two query params: portalId (the Portal record they
@@ -1920,7 +1938,7 @@
         return;
       }
       // 2. Public VAPID key from the server.
-      const cfgRes = await fetch("/.netlify/functions/get-push-config");
+      const cfgRes = await apiFetch("/.netlify/functions/get-push-config");
       const cfg = await cfgRes.json();
       if (!cfgRes.ok || !cfg.publicKey) {
         alert("Push isn't configured on the server yet. Please tell info@unearthededucation.org.");
@@ -1936,7 +1954,7 @@
         });
       }
       // 4. Save the subscription to the user's contact in HubSpot.
-      const saveRes = await fetch("/.netlify/functions/save-push-subscription", {
+      const saveRes = await apiFetch("/.netlify/functions/save-push-subscription", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, subscription: sub.toJSON ? sub.toJSON() : sub })
@@ -2075,7 +2093,7 @@
     btn.disabled = true;
     btn.textContent = "LOADING…";
     try {
-      const res = await fetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
+      const res = await apiFetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.found && data.submissionId) {
         const editUrl = `https://www.jotform.com/edit/${encodeURIComponent(data.submissionId)}`;
@@ -2123,7 +2141,7 @@
         paymentType: el.dataset.paymentType || "card"
       };
 
-      const res = await fetch("/.netlify/functions/create-checkout-session", {
+      const res = await apiFetch("/.netlify/functions/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -2199,7 +2217,7 @@
           : `/.netlify/functions/portal?email=${encodeURIComponent(email)}`;
       }
       console.log("[init] fetching portal URL:", portalUrl);
-      const res = await fetch(portalUrl);
+      const res = await apiFetch(portalUrl);
       // Netlify returns HTML when a function crashes at startup; try to
       // parse JSON, but if that fails, surface the raw text + status so
       // we can debug instead of falling into the silent retry loop.
@@ -2470,7 +2488,7 @@
 
     if (!overview || !wording) {
       try {
-        const res = await fetch(`/.netlify/functions/get-insurance`);
+        const res = await apiFetch(`/.netlify/functions/get-insurance`);
         const data = await res.json();
         if (!overview && data.insurance_overview__faqs) overview = String(data.insurance_overview__faqs).trim();
         if (!wording  && data.insurance_policy_wording)    wording  = String(data.insurance_policy_wording).trim();
@@ -2499,7 +2517,7 @@
     // portalData by portal.js (trip record overrides global record). So we
     // can read them directly from portalData; the get-insurance fallback is
     // only kept as a safety net.
-    const paidPromise = fetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(email)}`)
+    const paidPromise = apiFetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(email)}`)
       .then(r => r.json())
       .catch(err => { console.error("Paid payments fetch error:", err); return { payments: [] }; });
 
@@ -2538,7 +2556,7 @@
     // actually look like a URL.
     if (!paymentFormUrl || !paymentsInfo) {
       try {
-        const r = await fetch(`/.netlify/functions/get-insurance`);
+        const r = await apiFetch(`/.netlify/functions/get-insurance`);
         const d = await r.json();
         if (!paymentFormUrl && looksLikeUrl(d.payment_form_url)) {
           paymentFormUrl = String(d.payment_form_url).trim();
@@ -2865,7 +2883,7 @@
         content.innerHTML = `<div style="color:#999; font-size:13px; text-align:center; padding:30px; letter-spacing:1px;">LOADING FAQs...</div>`;
         content.style.opacity = 1;
         try {
-          const res = await fetch(`/.netlify/functions/get-insurance`);
+          const res = await apiFetch(`/.netlify/functions/get-insurance`);
           const data = await res.json();
           const globalFaqs = (data.global_faqs || "").trim();
           const tripFaqs = (portalData.faqs || "").trim();
@@ -2920,7 +2938,7 @@
       let raw = (portalData.documents_upload_form || "").trim();
       if (!raw) {
         try {
-          const insRes = await fetch(`/.netlify/functions/get-insurance`);
+          const insRes = await apiFetch(`/.netlify/functions/get-insurance`);
           const insData = await insRes.json();
           raw = insData?.documents_upload_form || "";
         } catch (_) { /* fall through with empty raw */ }
@@ -2933,7 +2951,7 @@
       if (formInputs.length > 0) {
         const ids = formInputs.map(f => f.formId).filter(Boolean).join(",");
         if (ids) {
-          const docsRes = await fetch(
+          const docsRes = await apiFetch(
             `/.netlify/functions/get-uploaded-documents?email=${encodeURIComponent(email)}&formIds=${encodeURIComponent(ids)}`
           );
           const docsData = await docsRes.json();
@@ -3079,7 +3097,7 @@
   async function loadTeacherList(content) {
     try {
       const portalId = portalData.hs_object_id;
-      const res = await fetch(`/.netlify/functions/get-teachers?portalId=${portalId}`);
+      const res = await apiFetch(`/.netlify/functions/get-teachers?portalId=${portalId}`);
       const data = await res.json();
 
       const teachers    = Array.isArray(data.teachers)    ? data.teachers    : [];
@@ -3331,7 +3349,7 @@
 
     try {
       const portalId = portalData.hs_object_id;
-      const res = await fetch(`/.netlify/functions/get-students?portalId=${portalId}`);
+      const res = await apiFetch(`/.netlify/functions/get-students?portalId=${portalId}`);
       const data = await res.json();
 
       document.getElementById("studentLoader")?.remove();
@@ -3534,7 +3552,7 @@
     details.innerHTML = `<div class="application-detail-empty">LOADING APPLICATION DETAILS…</div>`;
 
     try {
-      const res = await fetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
+      const res = await apiFetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
       const data = await res.json();
       details.innerHTML = renderApplicationDetails(data);
     } catch (err) {
@@ -3626,7 +3644,7 @@
     }
 
     try {
-      const res = await fetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
+      const res = await apiFetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         let detail = `HTTP ${res.status}`;
@@ -3823,6 +3841,7 @@
   }
 
   function logout() {
+    sessionStorage.removeItem("portalToken");
     sessionStorage.removeItem("portalEmail");
     sessionStorage.removeItem("adminRole");
     sessionStorage.removeItem("firstName");

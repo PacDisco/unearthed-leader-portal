@@ -31,6 +31,9 @@
 //         "Upload", "File", "Attachment", "Photo Upload", etc.
 //   Specific labels like "Passport" or "Medical Form" never get overridden,
 //   so the application form is unaffected.
+import { authenticate, tokenFromEvent } from "./_shared/auth.js";
+import { assertEmailAccess } from "./_shared/portal-access.js";
+
 const DOC_NAME_PATTERN_FORMS = new Set([
   // Add a form ID here if it has SPECIFIC upload-field labels but you still
   // want the textbox-before-upload value to take precedence. Most forms don't
@@ -62,6 +65,13 @@ export async function handler(event) {
     if (!email) {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing email" }) };
     }
+
+    // Auth: signed in, and either this person, an admin, or staff on a trip
+    // they belong to.
+    const auth = authenticate(event);
+    if (auth.response) return auth.response;
+    const access = await assertEmailAccess(auth.session, email);
+    if (access) return access;
     if (!process.env.JOTFORM_API_KEY) {
       return {
         statusCode: 500,
@@ -89,14 +99,22 @@ export async function handler(event) {
     // Process all forms in parallel — title fetch + submissions fetch each.
     const perForm = await Promise.all(idList.map(id => loadFormData(id, cleanEmail, apiKey, baseUrl)));
 
-    // Aggregate
+    // Aggregate. Append the caller's session token to each /document-proxy
+    // URL so the (now auth-gated) proxy can verify the viewer — <img>/<a>
+    // tags can't send an Authorization header, so the token rides in the URL.
+    const callerToken = tokenFromEvent(event);
     const documents = [];
     const forms = [];
     let firstError = null;
     for (const r of perForm) {
       if (r.error && !firstError) firstError = r.error;
       forms.push({ id: r.id, title: r.title || null });
-      for (const d of r.documents) documents.push(d);
+      for (const d of r.documents) {
+        if (callerToken && d.url && d.url.startsWith("/document-proxy?")) {
+          d.url += `&token=${encodeURIComponent(callerToken)}`;
+        }
+        documents.push(d);
+      }
     }
 
     documents.sort((a, b) => {

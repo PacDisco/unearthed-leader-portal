@@ -8,6 +8,9 @@
 // dates appear as "2026-03-12", "27 March 2026", "22.2.26", etc., and commas
 // are occasionally misplaced. The parser below pulls out whatever it can.
 
+import { authenticate } from "./_shared/auth.js";
+import { assertEmailAccess } from "./_shared/portal-access.js";
+
 export async function handler(event) {
   try {
     const email = event.queryStringParameters?.email;
@@ -17,6 +20,13 @@ export async function handler(event) {
         body: JSON.stringify({ error: "Missing email" })
       };
     }
+
+    // Auth: signed in, and either this person, an admin, or staff on a trip
+    // they belong to.
+    const auth = authenticate(event);
+    if (auth.response) return auth.response;
+    const access = await assertEmailAccess(auth.session, email);
+    if (access) return access;
 
     const cleanEmail = email.toLowerCase().trim();
 
@@ -44,12 +54,10 @@ export async function handler(event) {
     );
 
     if (!contactRes.ok) {
+      console.error("[get-paid-payments] contact fetch failed:", (await contactRes.text().catch(() => "")).slice(0, 300));
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Contact fetch failed",
-          details: await contactRes.text()
-        })
+        body: JSON.stringify({ error: "Contact fetch failed" })
       };
     }
 
@@ -107,12 +115,10 @@ export async function handler(event) {
     );
 
     if (!dealsRes.ok) {
+      console.error("[get-paid-payments] deal batch-read failed:", (await dealsRes.text().catch(() => "")).slice(0, 300));
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Deal batch-read failed",
-          details: await dealsRes.text()
-        })
+        body: JSON.stringify({ error: "Deal batch-read failed" })
       };
     }
 
@@ -157,7 +163,7 @@ export async function handler(event) {
     console.error("ERROR:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      body: JSON.stringify({ error: "Server error" })
     };
   }
 }

@@ -1,3 +1,7 @@
+import { createToken } from "./_shared/auth.js";
+import { hashPassword } from "./_shared/password.js";
+import { leaderPortalIdsForEmail } from "./_shared/portal-access.js";
+
 export async function handler(event) {
   try {
     const { token, email, password } = JSON.parse(event.body);
@@ -6,6 +10,17 @@ export async function handler(event) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: "Missing fields" })
+      };
+    }
+
+    // Enforce a minimum length server-side (the set-password page checks this
+    // too, but client checks are bypassable). Only applies to NEW/reset
+    // passwords — existing shorter passwords keep working at login until the
+    // owner next changes them, so no one is locked out.
+    if (String(password).length < 8) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ success: false, error: "Password must be at least 8 characters." })
       };
     }
 
@@ -28,7 +43,7 @@ export async function handler(event) {
               value: email
             }]
           }],
-          properties: ["email", "portal_token", "portal_token_expiry"]
+          properties: ["email", "portal_token", "portal_token_expiry", "admin_role"]
         })
       }
     );
@@ -61,7 +76,7 @@ export async function handler(event) {
         headers,
         body: JSON.stringify({
           properties: {
-            portal_password: password,
+            portal_password: await hashPassword(password),
             portal_token: "",
             portal_token_expiry: ""
           }
@@ -69,15 +84,42 @@ export async function handler(event) {
       }
     );
 
+    // The set-password page logs the user straight in, so hand back a
+    // signed session token (and their role) just like login.js does.
+    const adminRole = contact.properties?.admin_role || null;
+    const cleanEmail = String(email).toLowerCase().trim();
+
+    // Leader-portal gate (mirrors login.js): only admins or staff
+    // (Teacher/Trip Leader) get a session. The password is saved above
+    // regardless, but a non-leader can't get in — this stops the magic-link
+    // path from bypassing the access check.
+    let leaderRole = null;
+    if (!adminRole) {
+      const leaderPortals = await leaderPortalIdsForEmail(cleanEmail);
+      if (!leaderPortals.length) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ success: false, error: "not_authorized" })
+        };
+      }
+      leaderRole = true;
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true })
+      body: JSON.stringify({
+        success: true,
+        token: createToken({ email: cleanEmail, role: adminRole }),
+        adminRole,
+        leaderRole
+      })
     };
 
   } catch (err) {
+    console.error("[set-password] error:", err?.message || err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      body: JSON.stringify({ error: "Server error" })
     };
   }
 }

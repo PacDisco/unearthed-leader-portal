@@ -169,6 +169,7 @@
     `${firstName ? firstName + " · " : ""}${adminRole || ""} · ${email || ""}`;
 
   function logout() {
+    sessionStorage.removeItem("portalToken");
     sessionStorage.removeItem("portalEmail");
     sessionStorage.removeItem("adminRole");
     sessionStorage.removeItem("leaderRole");
@@ -227,7 +228,14 @@
 
   async function init() {
     try {
-      const res = await fetch(`/.netlify/functions/get-portals?email=${encodeURIComponent(email)}`);
+      const res = await fetch(`/.netlify/functions/get-portals?email=${encodeURIComponent(email)}`, {
+        headers: { Authorization: "Bearer " + (sessionStorage.getItem("portalToken") || "") }
+      });
+      if (res.status === 401 || res.status === 403) {
+        try { sessionStorage.clear(); } catch (_) {}
+        window.location.href = "/login.html";
+        return;
+      }
       const data = await res.json();
       if (!res.ok || data.error) {
         const c = document.getElementById("picker");

@@ -7,8 +7,15 @@
 // Both lists feed the "SCHOOL CONTACTS" section on the portal so parents
 // see who's accompanying the trip and a short bio of each trip leader.
 
+import { authenticate, tokenFromEvent } from "./_shared/auth.js";
+import { assertPortalAccess } from "./_shared/portal-access.js";
+
 export async function handler(event) {
   try {
+    // Auth: signed in.
+    const auth = authenticate(event);
+    if (auth.response) return auth.response;
+
     const { portalId } = event.queryStringParameters || {};
 
     if (!portalId) {
@@ -17,6 +24,10 @@ export async function handler(event) {
         body: JSON.stringify({ error: "Missing portalId" })
       };
     }
+
+    // Authorization: caller must be staff on this trip (or an admin).
+    const access = await assertPortalAccess(auth.session, portalId);
+    if (access) return access;
 
     const OBJECT = "2-58156993";
     const headers = {
@@ -31,12 +42,10 @@ export async function handler(event) {
     );
 
     if (!assocRes.ok) {
+      console.error("[get-teachers] associations fetch failed:", (await assocRes.text().catch(() => "")).slice(0, 300));
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Portal contact associations fetch failed",
-          details: await assocRes.text()
-        })
+        body: JSON.stringify({ error: "Portal contact associations fetch failed" })
       };
     }
 
@@ -100,6 +109,18 @@ export async function handler(event) {
     tripLeaders.sort((a, b) => a.name.localeCompare(b.name));
     admins.sort((a, b) => a.name.localeCompare(b.name));
 
+    // Append the caller's session token to any /document-proxy photo URLs so
+    // the (now auth-gated) proxy can verify the viewer — <img> tags can't
+    // send an Authorization header.
+    const callerToken = tokenFromEvent(event);
+    if (callerToken) {
+      for (const c of [...teachers, ...tripLeaders, ...admins]) {
+        if (c.photoUrl && c.photoUrl.startsWith("/document-proxy?")) {
+          c.photoUrl += `&token=${encodeURIComponent(callerToken)}`;
+        }
+      }
+    }
+
     return {
       statusCode: 200,
       body: JSON.stringify({ teachers, tripLeaders, admins })
@@ -109,7 +130,7 @@ export async function handler(event) {
     console.error("ERROR:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      body: JSON.stringify({ error: "Server error" })
     };
   }
 }
