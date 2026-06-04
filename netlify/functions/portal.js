@@ -30,10 +30,10 @@ export async function handler(event) {
     // staff/admins in login.js + set-password.js, so only authorized users
     // ever reach this point.
     if (adminPortalId) {
-      const auth = authenticateAdmin(event);
+      const auth = await authenticateAdmin(event);
       if (auth.response) return auth.response;
     } else {
-      const auth = authenticateSelf(event, email);
+      const auth = await authenticateSelf(event, email);
       if (auth.response) return auth.response;
     }
 

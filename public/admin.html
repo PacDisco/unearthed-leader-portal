@@ -169,7 +169,17 @@
   document.getElementById("whoami").textContent =
     `${firstName ? firstName + " · " : ""}${adminRole || ""} · ${email || ""}`;
 
-  function logout() {
+  async function logout() {
+    const t = sessionStorage.getItem("portalToken");
+    // Best-effort server-side revocation so the token can't be replayed
+    // after logout. keepalive lets it complete during navigation.
+    try {
+      if (t) await fetch("/.netlify/functions/logout", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + t },
+        keepalive: true
+      });
+    } catch (_) { /* ignore — clear locally regardless */ }
     sessionStorage.removeItem("portalToken");
     sessionStorage.removeItem("portalEmail");
     sessionStorage.removeItem("adminRole");

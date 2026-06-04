@@ -3,7 +3,7 @@ import { authenticate } from "./_shared/auth.js";
 export async function handler(event) {
   try {
     // Auth: any signed-in user (shared content, but kept behind login).
-    const auth = authenticate(event);
+    const auth = await authenticate(event);
     if (auth.response) return auth.response;
 
     const OBJECT = "2-58156993";

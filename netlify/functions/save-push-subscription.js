@@ -36,7 +36,7 @@ export async function handler(event) {
     }
 
     // Auth: you may only save a push subscription against your own contact.
-    const auth = authenticateSelf(event, email);
+    const auth = await authenticateSelf(event, email);
     if (auth.response) return auth.response;
 
     const headers = {

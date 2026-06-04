@@ -2088,40 +2088,14 @@
   // Opens a new tab synchronously inside the click event so popup blockers
   // don't bite, then navigates that tab once Stripe returns the session URL.
   // Falls back to the link's href (the intermediate page) on any failure.
-  // Lazy-fetches the logged-in user's most recent Jotform application
-  // submissionId and opens https://www.jotform.com/edit/{id} in a new
-  // tab. Pattern mirrors startCheckout — the popup is opened up-front
-  // so popup-blockers don't bite, then redirected once we have the URL.
-  // Falls back to an alert if nothing is found.
-  async function openApplicationEdit(btn) {
-    if (window.__appEditBusy) return false;
-    window.__appEditBusy = true;
-    const newWin = window.open("about:blank", "_blank");
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "LOADING…";
-    try {
-      const res = await apiFetch(`/.netlify/functions/get-application-data?email=${encodeURIComponent(email)}`);
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.found && data.submissionId) {
-        const editUrl = `https://www.jotform.com/edit/${encodeURIComponent(data.submissionId)}`;
-        if (newWin) newWin.location.href = editUrl;
-        else window.location.href = editUrl;
-        return false;
-      }
-      if (newWin) newWin.close();
-      alert("We couldn\u2019t find an application form submission for your email yet. " +
-            "If you\u2019ve recently submitted one, try again in a minute, " +
-            "or contact info@unearthededucation.org.");
-    } catch (err) {
-      console.error("openApplicationEdit error:", err);
-      if (newWin) newWin.close();
-      alert("Could not load your application. Please try again in a minute.");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = original;
-      window.__appEditBusy = false;
-    }
+  // Opens the SECURE in-portal application editor (/edit-application.html).
+  // The native Jotform edit URL is no longer used or exposed - all reads and
+  // writes go through our own session-protected API (get-application /
+  // update-application), which resolves the user's submission server-side.
+  // We simply navigate same-origin; the editor handles loading, masking
+  // sensitive fields, and saving.
+  function openApplicationEdit(btn) {
+    window.location.href = "/edit-application.html";
     return false;
   }
 
@@ -2420,10 +2394,10 @@
         const itineraryHtml = e.itineraryUrl
           ? `<a href="${e.itineraryUrl}" target="_blank" class="event-link">VIEW ITINERARY</a>`
           : `<span class="tbc">TBC</span>`;
-        // The Edit Application button is wired to a click handler that
-        // lazily fetches the user's application submissionId and then
-        // opens jotform.com/edit/{id} in a new tab. Always rendered;
-        // graceful fallback if no submission is found.
+        // The Edit Application button navigates to the secure in-portal
+        // editor (/edit-application.html). It never touches the native
+        // Jotform edit URL; the editor loads/saves via our own
+        // session-protected API. Always rendered.
         const editAppHtml = `<button type="button"
           class="event-link event-link--app"
           onclick="return openApplicationEdit(this);">EDIT APPLICATION</button>`;
@@ -3848,7 +3822,18 @@
     };
   }
 
-  function logout() {
+  async function logout() {
+    const t = sessionStorage.getItem("portalToken");
+    // Best-effort server-side revocation: invalidates this token (and any
+    // other active sessions) so it can't be replayed after logout. keepalive
+    // lets the request finish even as we navigate away.
+    try {
+      if (t) await fetch("/.netlify/functions/logout", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + t },
+        keepalive: true
+      });
+    } catch (_) { /* ignore — clear locally regardless */ }
     sessionStorage.removeItem("portalToken");
     sessionStorage.removeItem("portalEmail");
     sessionStorage.removeItem("adminRole");

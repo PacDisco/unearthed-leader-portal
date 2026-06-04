@@ -43,7 +43,7 @@ export async function handler(event) {
               value: email
             }]
           }],
-          properties: ["email", "portal_token", "portal_token_expiry", "admin_role"]
+          properties: ["email", "portal_token", "portal_token_expiry", "admin_role", "portal_token_version"]
         })
       }
     );
@@ -109,7 +109,7 @@ export async function handler(event) {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        token: createToken({ email: cleanEmail, role: adminRole }),
+        token: createToken({ email: cleanEmail, role: adminRole, ver: parseInt(contact.properties?.portal_token_version || "0", 10) || 0 }),
         adminRole,
         leaderRole
       })

@@ -35,7 +35,7 @@ export async function handler(event) {
     // Auth: signed in, and either this person, an admin, or staff (Teacher/
     // Trip Leader) on a trip they belong to — leaders view their students'
     // application/medical data.
-    const auth = authenticate(event);
+    const auth = await authenticate(event);
     if (auth.response) return auth.response;
     const access = await assertEmailAccess(auth.session, email);
     if (access) return access;

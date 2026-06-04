@@ -1,7 +1,7 @@
 // Bump this string any time you ship a release that should bust the
 // install-time cache for previously-installed PWA users. The activate
 // handler below deletes any cache whose name doesn't match.
-const CACHE_NAME = "unearthed-leader-v8-security";
+const CACHE_NAME = "unearthed-leader-v9-secure-edit-revocation";
 const STATIC_FILES = ["/index.html", "/login.html", "/site.webmanifest"];
 
 // Install — cache static files

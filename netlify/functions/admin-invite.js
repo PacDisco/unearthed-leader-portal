@@ -71,7 +71,7 @@ export async function handler(event) {
     // trusted body.inviterEmail, so anyone could claim to be an admin by
     // sending a known admin's email. The live admin_role re-check below then
     // also catches a role that was revoked after the token was issued.
-    const auth = authenticateAdmin(event);
+    const auth = await authenticateAdmin(event);
     if (auth.response) return auth.response;
 
     let body;

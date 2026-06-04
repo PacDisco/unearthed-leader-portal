@@ -96,7 +96,7 @@ export async function handler(event) {
 
     // Auth: signed in, and either this person, an admin, or staff on a trip
     // they belong to.
-    const auth = authenticate(event);
+    const auth = await authenticate(event);
     if (auth.response) return auth.response;
     const session = auth.session;
     const access = await assertEmailAccess(session, email);

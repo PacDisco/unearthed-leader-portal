@@ -95,7 +95,7 @@ export async function handler(event) {
           filterGroups: [{
             filters: [{ propertyName: "email", operator: "EQ", value: cleanEmail }]
           }],
-          properties: ["email", "portal_password", "admin_role", "firstname"]
+          properties: ["email", "portal_password", "admin_role", "firstname", "portal_token_version"]
         })
       }
     );
@@ -199,7 +199,8 @@ export async function handler(event) {
         email: cleanEmail,
         // Signed session token. role = admin_role for admins, null for
         // leaders (so trip-scoping in portal-access.js applies to leaders).
-        token: createToken({ email: cleanEmail, role: adminRole }),
+        // `ver` lets logout revoke this token (see _shared/auth.js).
+        token: createToken({ email: cleanEmail, role: adminRole, ver: parseInt(contact.properties?.portal_token_version || "0", 10) || 0 }),
         adminRole,
         // "teacher" | "trip_leader" | null (null when the user is an admin).
         leaderRole,

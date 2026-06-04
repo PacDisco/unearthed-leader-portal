@@ -13,7 +13,7 @@ import { assertPortalAccess } from "./_shared/portal-access.js";
 export async function handler(event) {
   try {
     // Auth: signed in.
-    const auth = authenticate(event);
+    const auth = await authenticate(event);
     if (auth.response) return auth.response;
 
     const { portalId } = event.queryStringParameters || {};

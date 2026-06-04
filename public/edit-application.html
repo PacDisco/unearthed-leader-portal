@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edit Application — Unearthed Education Leader Portal</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+  <meta name="theme-color" content="#55BBD2">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: 'Inter', sans-serif; background: #f8f8f8;
+      color: #212121; min-height: 100vh;
+    }
+    header {
+      background: #55BBD2; color: #fff; padding: 22px 20px; display: flex;
+      align-items: center; justify-content: space-between;
+    }
+    header .title { font-size: 14px; letter-spacing: 1.5px; font-weight: 600; }
+    header a {
+      color: #fff; text-decoration: none; font-size: 11px; letter-spacing: 1px;
+      border: 1px solid rgba(255,255,255,0.5); padding: 6px 14px; border-radius: 2px;
+    }
+    .wrap { max-width: 680px; margin: 0 auto; padding: 28px 20px 80px; }
+    .intro { font-size: 13px; color: #555; line-height: 1.6; margin: 0 0 24px; }
+    .field { background: #fff; border: 1px solid #e5e7eb; padding: 16px 18px; margin-bottom: 14px; }
+    .field label { display: block; font-size: 11px; letter-spacing: 1px; font-weight: 600; color: #666; margin-bottom: 8px; text-transform: uppercase; }
+    .field input, .field textarea {
+      width: 100%; padding: 11px 14px; border: 1px solid #e5e7eb; background: #fbfbfb;
+      font-family: 'Inter', sans-serif; font-size: 14px; color: #212121;
+    }
+    .field input:focus, .field textarea:focus { outline: none; border-color: #55BBD2; }
+    .field textarea { min-height: 90px; resize: vertical; }
+    .field.readonly input, .field.readonly textarea { color: #888; background: #f3f3f3; }
+    .field .hint { font-size: 11px; color: #999; margin-top: 6px; line-height: 1.5; }
+    .field.sensitive label::after {
+      content: "PRIVATE"; margin-left: 8px; font-size: 9px; letter-spacing: 1px;
+      background: #fdecea; color: #c0392b; padding: 2px 6px; border-radius: 2px; vertical-align: middle;
+    }
+    .badge-ro { font-size: 9px; letter-spacing: 1px; background: #eef2f7; color: #6b7a90; padding: 2px 6px; border-radius: 2px; margin-left: 8px; vertical-align: middle; }
+    .bar {
+      position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e5e7eb;
+      padding: 14px 20px; display: flex; gap: 12px; justify-content: flex-end; align-items: center;
+    }
+    .bar .status { margin-right: auto; font-size: 13px; color: #555; }
+    button {
+      padding: 12px 24px; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 600;
+      letter-spacing: 1px; cursor: pointer; border: none; border-radius: 2px;
+    }
+    .btn-primary { background: #55BBD2; color: #fff; }
+    .btn-primary:disabled { opacity: 0.5; cursor: default; }
+    .btn-secondary { background: transparent; color: #55BBD2; border: 1px solid #55BBD2; }
+    .msg { padding: 12px 16px; font-size: 13px; margin-bottom: 18px; display: none; }
+    .msg.error { background: #fdf0ef; color: #c0392b; display: block; }
+    .msg.success { background: #f0f7f4; color: #2f8f6b; display: block; }
+    .loading { color: #888; font-size: 14px; padding: 40px 0; text-align: center; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="title">EDIT YOUR APPLICATION</div>
+  <a href="/index.html">← BACK TO PORTAL</a>
+</header>
+
+<div class="wrap">
+  <p class="intro">
+    Update your application details below. For your security, private fields
+    (passport, health and similar) are not shown — they appear masked. Leave a
+    masked field blank to keep its current value, or type a new value to replace it.
+  </p>
+
+  <div id="msg" class="msg"></div>
+  <div id="loading" class="loading">Loading your application…</div>
+  <form id="appForm" style="display:none;"></form>
+</div>
+
+<div class="bar" id="bar" style="display:none;">
+  <span class="status" id="status"></span>
+  <button type="button" class="btn-secondary" onclick="window.location.href='/index.html'">CANCEL</button>
+  <button type="button" class="btn-primary" id="saveBtn" onclick="save()">SAVE CHANGES</button>
+</div>
+
+<script>
+  // --- session guard ---------------------------------------------------------
+  // The signed session token is stored by login.html under "portalToken" and
+  // sent as a Bearer header; the server verifies it (see _shared/auth.js).
+  const email = sessionStorage.getItem("portalEmail");
+  const sessionToken = sessionStorage.getItem("portalToken");
+  if (!email || !sessionToken) { window.location.href = "/login.html"; }
+
+  const MASK = "••••••••"; // ••••••••
+  const SENSITIVE_PLACEHOLDER = "To update, enter a new value — otherwise leave blank";
+
+  // Tracks initial values so we only send fields the user actually changed.
+  let initial = {};   // qid -> original value (sensitive fields tracked as "")
+  let fieldMeta = {}; // qid -> { sensitive, editable, type }
+
+  function authHeaders() {
+    const h = { "Content-Type": "application/json" };
+    if (sessionToken) h["Authorization"] = "Bearer " + sessionToken;
+    return h;
+  }
+
+  function showMsg(text, kind) {
+    const m = document.getElementById("msg");
+    m.textContent = text;
+    m.className = "msg " + (kind || "");
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  async function load() {
+    try {
+      const res = await fetch("/.netlify/functions/get-application", { headers: authHeaders() });
+      if (res.status === 401) {
+        showMsg("Your session has expired. Please sign in again.", "error");
+        setTimeout(() => window.location.href = "/login.html", 1500);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { throw new Error(data.error || ("HTTP " + res.status)); }
+
+      document.getElementById("loading").style.display = "none";
+
+      if (!data.found) {
+        showMsg("We couldn't find an application submission for your account yet. " +
+                "If you recently submitted one, try again shortly, or contact info@unearthededucation.org.", "error");
+        return;
+      }
+
+      renderForm(data.fields || []);
+      document.getElementById("appForm").style.display = "block";
+      document.getElementById("bar").style.display = "flex";
+    } catch (err) {
+      document.getElementById("loading").style.display = "none";
+      showMsg("Could not load your application. Please try again in a moment.", "error");
+      console.error(err);
+    }
+  }
+
+  function renderForm(fields) {
+    const form = document.getElementById("appForm");
+    form.innerHTML = "";
+
+    fields.forEach(f => {
+      // Editable composite (address): render one input per subfield.
+      if (f.composite && f.editable && Array.isArray(f.subfields)) {
+        const wrap = document.createElement("div");
+        wrap.className = "field";
+        let inner = `<label>${escapeHtml(f.label)}</label>`;
+        f.subfields.forEach(sf => {
+          fieldMeta[sf.key] = { sensitive: false, editable: true, type: "address_sub" };
+          initial[sf.key] = sf.value || "";
+          const sid = "f_" + sf.key;
+          inner += `<div style="margin-bottom:8px;">`
+            + `<input type="text" id="${sid}" data-qid="${escapeHtml(sf.key)}" `
+            + `placeholder="${escapeHtml(sf.label)}" value="${escapeHtml(sf.value || "")}">`
+            + `</div>`;
+        });
+        wrap.innerHTML = inner;
+        form.appendChild(wrap);
+        return;
+      }
+
+      fieldMeta[f.qid] = { sensitive: !!f.sensitive, editable: !!f.editable, type: f.type };
+
+      const wrap = document.createElement("div");
+      wrap.className = "field"
+        + (f.sensitive ? " sensitive" : "")
+        + ((!f.editable) ? " readonly" : "");
+
+      const labelHtml = escapeHtml(f.label)
+        + ((!f.editable && !f.sensitive) ? ' <span class="badge-ro">READ ONLY</span>' : "");
+
+      const multiline = f.type === "control_textarea";
+      const inputId = "f_" + f.qid;
+
+      let controlHtml;
+      if (f.sensitive) {
+        // Never received the real value. Show mask placeholder; empty input.
+        initial[f.qid] = ""; // baseline: blank means "leave unchanged"
+        const common = `id="${inputId}" data-qid="${escapeHtml(f.qid)}" placeholder="${escapeHtml(SENSITIVE_PLACEHOLDER)}"`;
+        controlHtml = multiline
+          ? `<textarea ${common}></textarea>`
+          : `<input type="text" ${common} value="">`;
+      } else {
+        const val = f.value == null ? "" : f.value;
+        initial[f.qid] = val;
+        const ro = f.editable ? "" : "readonly";
+        const common = `id="${inputId}" data-qid="${escapeHtml(f.qid)}" ${ro}`;
+        controlHtml = multiline
+          ? `<textarea ${common}>${escapeHtml(val)}</textarea>`
+          : `<input type="text" ${common} value="${escapeHtml(val)}">`;
+      }
+
+      let hint = "";
+      if (f.sensitive) hint = `<div class="hint">${escapeHtml(MASK)} &middot; hidden for your security. Leave blank to keep the current value.</div>`;
+      else if (!f.editable) hint = `<div class="hint">This field can't be edited here.</div>`;
+
+      wrap.innerHTML = `<label for="${inputId}">${labelHtml}</label>${controlHtml}${hint}`;
+      form.appendChild(wrap);
+    });
+  }
+
+  function collectChanges() {
+    const changes = {};
+    document.querySelectorAll("#appForm [data-qid]").forEach(el => {
+      const qid = el.getAttribute("data-qid");
+      const meta = fieldMeta[qid] || {};
+      if (!meta.editable) return; // never send read-only fields
+      const val = el.value;
+
+      if (meta.sensitive) {
+        // Only send if the user typed something (blank => keep existing).
+        if (val != null && String(val).trim() !== "") changes[qid] = val;
+      } else if (String(val) !== String(initial[qid] ?? "")) {
+        changes[qid] = val;
+      }
+    });
+    return changes;
+  }
+
+  async function save() {
+    const btn = document.getElementById("saveBtn");
+    const status = document.getElementById("status");
+    showMsg("", "");
+
+    const changes = collectChanges();
+    if (Object.keys(changes).length === 0) {
+      status.textContent = "No changes to save.";
+      return;
+    }
+
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = "SAVING…";
+    status.textContent = "";
+
+    try {
+      const res = await fetch("/.netlify/functions/update-application", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ changes }),
+      });
+      if (res.status === 401) {
+        showMsg("Your session has expired. Please sign in again.", "error");
+        setTimeout(() => window.location.href = "/login.html", 1500);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+
+      if (data.updated) {
+        showMsg("Your changes have been saved.", "success");
+        // Re-sync baseline so a second save doesn't resend, and clear
+        // any sensitive inputs back to masked/empty state.
+        Object.keys(changes).forEach(qid => {
+          if (fieldMeta[qid]?.sensitive) {
+            const el = document.getElementById("f_" + qid);
+            if (el) el.value = "";
+          } else {
+            initial[qid] = changes[qid];
+          }
+        });
+        status.textContent = "";
+      } else {
+        showMsg(data.message || "Nothing was updated.", "success");
+      }
+    } catch (err) {
+      console.error(err);
+      showMsg("Could not save your changes. Please try again.", "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>

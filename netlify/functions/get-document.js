@@ -24,7 +24,7 @@ import { authenticate } from "./_shared/auth.js";
 export async function handler(event) {
   try {
     // Auth: require a valid session (token via ?token= or Authorization header).
-    const auth = authenticate(event);
+    const auth = await authenticate(event);
     if (auth.response) return auth.response;
 
     const { url } = event.queryStringParameters || {};

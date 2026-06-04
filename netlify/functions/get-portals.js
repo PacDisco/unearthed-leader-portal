@@ -28,7 +28,7 @@ export async function handler(event) {
     // a non-admin (the old version had no server-side check at all). We take
     // the email from the verified session, not the querystring, so the
     // "your trips" decoration can't be spoofed either.
-    const auth = authenticateAdmin(event);
+    const auth = await authenticateAdmin(event);
     if (auth.response) return auth.response;
     const email = auth.session.email;
 
