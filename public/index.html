@@ -3686,25 +3686,16 @@
   // submission in a modal. Reuses the same get-application-data endpoint
   // as the Trip Leader inline expand, but renders the full ordered list of
   // fields rather than the medical-focused whitelist.
-  // Resolve the document-upload Jotform form IDs — same source the Documents
-  // tab uses: the trip's `documents_upload_form` (already merged with the
-  // global record by portal.js), falling back to the global record directly.
-  async function resolveDocumentFormIds() {
-    let raw = (portalData.documents_upload_form || "").trim();
-    if (!raw) {
-      try {
-        const insRes = await apiFetch(`/.netlify/functions/get-insurance`);
-        const insData = await insRes.json();
-        raw = insData?.documents_upload_form || "";
-      } catch (_) { /* ignore — we'll just have no forms */ }
-    }
-    return parseFormInputs(raw).map(f => f.formId).filter(Boolean).join(",");
-  }
+  // The Jotform form the per-student "VIEW DOCUMENTS" button reads from.
+  // Student uploads are matched by the email on their submission to this form.
+  // (From https://form.jotform.com/261220345497052)
+  const STUDENT_DOCS_FORM_ID = "261220345497052";
 
   // Staff-only: show a single student's uploaded documents in the shared modal.
-  // Reuses get-uploaded-documents (which authorizes a leader to read documents
-  // for any student on a trip they staff) and the same renderDocumentCard the
-  // Documents tab uses.
+  // Looks up the student's submission to STUDENT_DOCS_FORM_ID by email via
+  // get-uploaded-documents (which authorizes a leader to read documents for any
+  // student on a trip they staff) and renders them with the same
+  // renderDocumentCard the Documents tab uses.
   async function openStudentDocsModal(email, name) {
     const modal = document.getElementById("appModal");
     const subject = document.getElementById("appModalSubject");
@@ -3724,13 +3715,8 @@
     }
 
     try {
-      const ids = await resolveDocumentFormIds();
-      if (!ids) {
-        body.innerHTML = `<div class="docs-empty">Document upload form not configured.</div>`;
-        return;
-      }
       const res = await apiFetch(
-        `/.netlify/functions/get-uploaded-documents?email=${encodeURIComponent(email)}&formIds=${encodeURIComponent(ids)}`
+        `/.netlify/functions/get-uploaded-documents?email=${encodeURIComponent(email)}&formIds=${encodeURIComponent(STUDENT_DOCS_FORM_ID)}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
