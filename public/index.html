@@ -1576,7 +1576,7 @@
   </div>
 
   <div class="tile" onclick="loadSection('destination_overview_content')">
-    FLIGHTS & INSURANCE
+    FLIGHTS, INSURANCE & VISAS
   </div>
 
   <div class="tile" onclick="loadSection('travel_information_content')">
@@ -1687,6 +1687,38 @@
 
   let portalData = {};
 
+  // ----- Currency -----
+  // The program's currency comes from the `program_currency` dropdown on the
+  // Portal record in HubSpot (ISO 4217, e.g. "USD", "NZD"). Everything shown
+  // as money is formatted in this currency; falls back to NZD when unset.
+  const SUPPORTED_CURRENCIES = [
+    "USD","EUR","GBP","CAD","AUD","NZD","JPY","CHF",
+    "SGD","HKD","SEK","NOK","DKK","ZAR","AED"
+  ];
+  // Currencies for which the no-fee bank-transfer option is offered. Restricted
+  // to NZD only (the only bank-debit method enabled on the Stripe account);
+  // every other currency is card-only. Keep in sync with
+  // DIRECT_DEBIT_METHOD_BY_CURRENCY in netlify/functions/_shared/currency.js.
+  const BANK_DEBIT_REGION = {
+    NZD: "NZ ONLY"
+  };
+  function programCurrency() {
+    const c = String(portalData.program_currency || "").trim().toUpperCase();
+    return SUPPORTED_CURRENCIES.includes(c) ? c : "NZD";
+  }
+  function fmtCurrency(n, opts) {
+    const num = parseFloat(n);
+    if (!isFinite(num)) return "";
+    const cur = programCurrency();
+    try {
+      return new Intl.NumberFormat(undefined, { style: "currency", currency: cur, ...(opts || {}) }).format(num);
+    } catch (e) {
+      return `${cur} ${num.toLocaleString()}`;
+    }
+  }
+  function bankDebitRegionLabel() { return BANK_DEBIT_REGION[programCurrency()] || ""; }
+  function currencyHasBankDebit() { return !!BANK_DEBIT_REGION[programCurrency()]; }
+
   const tileColors = ["active-teal", "active-sand", "active-olive", "active-blue", "active-teal", "active-sand", "active-olive", "active-sand"];
 
   // ============================================================
@@ -1742,6 +1774,22 @@
           </div>
         `;
       });
+
+    // Extra ad-hoc resource fields (paired name + link, 1..5). Only rendered
+    // when a link URL is set; the card title comes from the matching name
+    // field (falling back to a generic label if the name was left blank).
+    for (let n = 1; n <= 5; n++) {
+      const url = String(portalData[`extra_field_link_${n}`] || "").trim();
+      if (!url) continue;
+      const name = String(portalData[`extra_field_name_${n}`] || "").trim();
+      const title = (name || `Resource ${n}`).toUpperCase();
+      cards.push(`
+          <div class="manual-card">
+            <h4>${attrEsc(title)}</h4>
+            <a href="${attrEsc(url)}" target="_blank" rel="noopener" class="manual-link">VIEW DOCUMENT</a>
+          </div>
+        `);
+    }
 
     if (cards.length === 0) {
       return `<div class="manuals-empty">No resources have been added yet.</div>`;
@@ -2288,7 +2336,7 @@
       safeRun("set price",         () => {
         if (portalData.price) {
           document.getElementById("programPrice").innerText =
-            `PRICE: $${parseFloat(portalData.price).toLocaleString()}`;
+            `PRICE: ${fmtCurrency(portalData.price, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
         }
       });
       safeRun("applyVisibility",        () => applyVisibility(portalData.labels));
@@ -2453,8 +2501,8 @@
         </div>
       </div>
       <div class="insurance-section">
-        <div class="insurance-section-label">INSURANCE</div>
-        <div id="insuranceContent"><span style="font-size:13px; color:#999;">Loading insurance details...</span></div>
+        <div class="insurance-section-label">INSURANCE &amp; VISAS</div>
+        <div id="insuranceContent"><span style="font-size:13px; color:#999;">Loading insurance &amp; visa details...</span></div>
       </div>
     `;
   }
@@ -2463,17 +2511,19 @@
     const el = document.getElementById("insuranceContent");
     if (!el) return;
 
-    // Prefer per-trip insurance fields (set on the trip's portal record)
+    // Prefer per-trip insurance/visa fields (set on the trip's portal record)
     // when populated, fall back to the global record's shared values.
     let overview = (portalData.insurance_overview__faqs || "").trim();
     let wording  = (portalData.insurance_policy_wording   || "").trim();
+    let visa     = (portalData.visa_information           || "").trim();
 
-    if (!overview || !wording) {
+    if (!overview || !wording || !visa) {
       try {
         const res = await apiFetch(`/.netlify/functions/get-insurance`);
         const data = await res.json();
         if (!overview && data.insurance_overview__faqs) overview = String(data.insurance_overview__faqs).trim();
         if (!wording  && data.insurance_policy_wording)    wording  = String(data.insurance_policy_wording).trim();
+        if (!visa     && data.visa_information)             visa     = String(data.visa_information).trim();
       } catch (err) {
         // Swallow — we'll show TBC for whichever side is still empty.
       }
@@ -2485,6 +2535,9 @@
     }
     if (wording) {
       links.push(`<a href="${wording}" target="_blank" class="flight-link">POLICY WORDING</a>`);
+    }
+    if (visa) {
+      links.push(`<a href="${visa}" target="_blank" class="flight-link">VISA INFORMATION</a>`);
     }
 
     el.innerHTML = links.length
@@ -2592,7 +2645,9 @@
     }
 
     function fmtMoney(n) {
-      return `$${parseFloat(n).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      // Formats in the program's currency (program_currency on the Portal
+      // record), e.g. "$1,030.00" for NZD/USD or "¥1,030" for JPY.
+      return fmtCurrency(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     // Builds the FALLBACK URL for a specific payment row — used as the
@@ -2686,7 +2741,12 @@
               data-payment-type="card"
               onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${cardIcon}<span class="payment-amount-method">CARD</span></span><span class="payment-amount-money">${cardChargeText}</span></a>`;
 
-        const debitLink = `<a href="${fallbackLink || "#"}"
+        // Bank transfer (direct debit) is only offered for currencies that
+        // have a matching Stripe bank-debit method (NZD only), and the region
+        // badge reflects that currency's home region.
+        const debitRegion = bankDebitRegionLabel();
+        const debitLink = currencyHasBankDebit()
+          ? `<a href="${fallbackLink || "#"}"
               target="_blank" rel="noopener"
               class="payment-amount-link payment-amount-link--debit"
               title="Pay by bank transfer (no processing fee)"
@@ -2695,7 +2755,8 @@
               data-charge-amount="${baseNum}"
               data-description="${attrEsc(description)}"
               data-payment-type="direct_debit"
-              onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${bankIcon}<span class="payment-amount-method">BANK TRANSFER</span><span class="payment-amount-badge">NZ ONLY</span><span class="payment-amount-badge payment-amount-badge--good">NO FEE</span></span><span class="payment-amount-money">${debitChargeText}</span></a>`;
+              onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${bankIcon}<span class="payment-amount-method">BANK TRANSFER</span><span class="payment-amount-badge">${debitRegion}</span><span class="payment-amount-badge payment-amount-badge--good">NO FEE</span></span><span class="payment-amount-money">${debitChargeText}</span></a>`
+          : "";
 
         amountCell = `<div class="payment-amount-options">${cardLink}${debitLink}</div>` +
                      `<span class="payment-amount-note">Base ${baseText} · card +3% fee</span>`;
@@ -3346,7 +3407,7 @@
 
       data.students.forEach(student => {
         const paymentsHtml = student.payments.length
-          ? student.payments.map(p => `<span>$${parseFloat(p.amount).toLocaleString()}</span>`).join("")
+          ? student.payments.map(p => `<span>${fmtCurrency(p.amount, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>`).join("")
           : "<span>No payments recorded</span>";
 
         const parentsHtml = student.parents.length

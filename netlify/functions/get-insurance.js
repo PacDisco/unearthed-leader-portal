@@ -14,7 +14,7 @@ export async function handler(event) {
     };
 
     const res = await fetch(
-      `https://api.hubapi.com/crm/v3/objects/${OBJECT}/${FIXED_ID}?properties=insurance_overview__faqs,insurance_policy_wording,payment_form_url,payments_information_content,faqs,documents_upload_form`,
+      `https://api.hubapi.com/crm/v3/objects/${OBJECT}/${FIXED_ID}?properties=insurance_overview__faqs,insurance_policy_wording,visa_information,payment_form_url,payments_information_content,faqs,documents_upload_form`,
       { headers }
     );
 
@@ -33,6 +33,7 @@ export async function handler(event) {
       body: JSON.stringify({
         insurance_overview__faqs: data.properties?.insurance_overview__faqs || null,
         insurance_policy_wording: data.properties?.insurance_policy_wording || null,
+        visa_information: data.properties?.visa_information || null,
         payment_form_url: data.properties?.payment_form_url || null,
         payments_information_content: data.properties?.payments_information_content || null,
         // Renamed in the response so the frontend can disambiguate from the

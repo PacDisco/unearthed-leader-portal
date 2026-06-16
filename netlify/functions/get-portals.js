@@ -94,7 +94,7 @@ export async function handler(event) {
     for (let page = 0; page < 5; page++) {
       const qs = new URLSearchParams({
         limit: "100",
-        properties: "portal_title,destination,price,hs_object_id"
+        properties: "portal_title,destination,price,program_currency,hs_object_id"
       });
       if (after) qs.set("after", after);
 
@@ -119,6 +119,7 @@ export async function handler(event) {
           title: r.properties?.portal_title || "(untitled trip)",
           destination: r.properties?.destination || "",
           price: r.properties?.price || null,
+          currency: r.properties?.program_currency || null,
           associated: associatedIds.has(String(r.id))
         });
       }

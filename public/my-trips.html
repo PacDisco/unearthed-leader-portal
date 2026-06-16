@@ -179,6 +179,27 @@
     window.location.href = "/index.html";
   }
 
+  // Format a portal's price in its own program currency (ISO 4217, from the
+  // program_currency dropdown in HubSpot). Falls back to NZD when unset.
+  const PRICE_SUPPORTED_CURRENCIES = [
+    "USD","EUR","GBP","CAD","AUD","NZD","JPY","CHF",
+    "SGD","HKD","SEK","NOK","DKK","ZAR","AED"
+  ];
+  function fmtPortalPrice(price, currency) {
+    const num = parseFloat(price);
+    if (!isFinite(num)) return "";
+    let cur = String(currency || "").trim().toUpperCase();
+    if (!PRICE_SUPPORTED_CURRENCIES.includes(cur)) cur = "NZD";
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency", currency: cur,
+        minimumFractionDigits: 0, maximumFractionDigits: 0
+      }).format(num);
+    } catch (e) {
+      return `${cur} ${num.toLocaleString()}`;
+    }
+  }
+
   function render(portals) {
     const c = document.getElementById("picker");
     c.className = "";
@@ -187,7 +208,7 @@
       return;
     }
     c.innerHTML = `<div class="portal-grid">${portals.map(p => {
-      const price = p.price ? `PRICE: $${parseFloat(p.price).toLocaleString()}` : "";
+      const price = p.price ? `PRICE: ${fmtPortalPrice(p.price, p.currency)}` : "";
       return `<a class="portal-card" href="javascript:void(0);" onclick="pickPortal('${attrEsc(p.id)}')">
         <h3 class="portal-card-title">${attrEsc(p.title || "(untitled)")}</h3>
         ${p.destination ? `<div class="portal-card-destination">${attrEsc(p.destination)}</div>` : ""}
