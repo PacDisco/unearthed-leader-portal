@@ -3768,9 +3768,14 @@
     // and aren't capped at 6MB (passport scans, medical PDFs etc. routinely
     // run 4–10MB; the edge function streams up to ~20MB).
     if (t === "control_fileupload" && Array.isArray(field.value)) {
+      // The /document-proxy edge function authenticates via a ?token= query
+      // param (a new-tab link can't send an Authorization header), so append
+      // the current session token — same as the server-side URL builders do.
+      const token = sessionStorage.getItem("portalToken") || "";
+      const tokenSuffix = token ? `&token=${encodeURIComponent(token)}` : "";
       const links = field.value
         .filter(Boolean)
-        .map(url => `<a href="/document-proxy?url=${encodeURIComponent(url)}" target="_blank" rel="noopener" class="application-field-file">VIEW</a>`)
+        .map(url => `<a href="/document-proxy?url=${encodeURIComponent(url)}${tokenSuffix}" target="_blank" rel="noopener" class="application-field-file">VIEW</a>`)
         .join("");
       return `
         <div class="application-field">
