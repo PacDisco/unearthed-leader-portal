@@ -2163,8 +2163,11 @@
       const payload = {
         email,
         paymentIndex: parseInt(el.dataset.paymentIndex, 10) || null,
-        baseAmount: el.dataset.baseAmount ? parseFloat(el.dataset.baseAmount) : null,
-        chargeAmount: el.dataset.chargeAmount ? parseFloat(el.dataset.chargeAmount) : null,
+        // The server derives the amount from HubSpot for this trip + payment
+        // index; baseAmount/chargeAmount are no longer trusted from here. We
+        // send portalId so the server knows which trip to price (and it's
+        // required when an admin starts the checkout).
+        portalId: el.dataset.portalId || portalData.hs_object_id || null,
         description: el.dataset.description || "",
         // "card" (default, +3% fee) or "direct_debit" (no fee). Comes from
         // the data-payment-type attribute set on the per-row link.
