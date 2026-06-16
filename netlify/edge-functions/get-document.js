@@ -101,10 +101,22 @@ export default async (request, context) => {
     }, upstream.status);
   }
 
-  const contentType = upstream.headers.get("content-type") || "application/octet-stream";
   const filename = decodeURIComponent(
     parsed.pathname.split("/").pop() || "document"
   ).replace(/"/g, "");
+
+  // Decide the Content-Type the browser will see. We want files to VIEW
+  // inline (passport scans, medical PDFs, photos) rather than download.
+  // Jotform frequently serves these as "application/octet-stream", and
+  // because the site sends `X-Content-Type-Options: nosniff` the browser
+  // won't guess — a generic type forces a download even with
+  // `Content-Disposition: inline`. So when the upstream type is missing or
+  // generic, derive a real type from the file extension.
+  const upstreamType = (upstream.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  const contentType =
+    (!upstreamType || upstreamType === "application/octet-stream")
+      ? guessContentType(filename)
+      : upstreamType;
 
   // Pass the upstream body straight through. ReadableStream → ReadableStream,
   // no .arrayBuffer(), no base64. This is the whole reason we're an edge fn.
@@ -117,6 +129,27 @@ export default async (request, context) => {
     }
   });
 };
+
+// Best-effort MIME type from a filename extension. Covers the formats people
+// actually upload to the portal (passport/visa scans, medical docs, photos).
+// Falls back to octet-stream for anything unknown (which will download — the
+// safe default for file types the browser can't render anyway).
+function guessContentType(filename) {
+  const ext = (filename.split(".").pop() || "").toLowerCase();
+  const map = {
+    pdf: "application/pdf",
+    jpg: "image/jpeg", jpeg: "image/jpeg", jpe: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    svg: "image/svg+xml",
+    tif: "image/tiff", tiff: "image/tiff",
+    heic: "image/heic", heif: "image/heif",
+    txt: "text/plain; charset=utf-8"
+  };
+  return map[ext] || "application/octet-stream";
+}
 
 function jsonResponse(payload, status) {
   return new Response(JSON.stringify(payload), {

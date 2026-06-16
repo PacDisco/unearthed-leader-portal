@@ -3448,6 +3448,20 @@
           `;
         }
 
+        // Staff (teacher / trip leader) can view this student's uploaded
+        // documents — same files as the "Documents" tab, but scoped to this
+        // student and opened in a modal from their card.
+        const docsBlock = student.email
+          ? `
+            <button class="student-expand-btn student-docs-btn" type="button"
+                    data-email="${attrEsc(student.email || "")}"
+                    data-student-name="${attrEsc(student.name || "")}"
+                    onclick="openStudentDocsModal(this.dataset.email, this.dataset.studentName)">
+              VIEW DOCUMENTS
+            </button>
+          `
+          : "";
+
         const photoHtml = student.portraitUrl
           ? `<img class="student-card-photo" src="${attrEsc(student.portraitUrl)}" alt="${attrEsc(student.name || "Student")}" decoding="async" onerror="console.warn('[student-card] photo failed:', this.src); this.style.display='none';">`
           : "";
@@ -3511,6 +3525,7 @@
               ${parentsHtml}
             </div>
             ${expandBlock}
+            ${docsBlock}
           </div>
         `;
       });
@@ -3671,6 +3686,68 @@
   // submission in a modal. Reuses the same get-application-data endpoint
   // as the Trip Leader inline expand, but renders the full ordered list of
   // fields rather than the medical-focused whitelist.
+  // Resolve the document-upload Jotform form IDs — same source the Documents
+  // tab uses: the trip's `documents_upload_form` (already merged with the
+  // global record by portal.js), falling back to the global record directly.
+  async function resolveDocumentFormIds() {
+    let raw = (portalData.documents_upload_form || "").trim();
+    if (!raw) {
+      try {
+        const insRes = await apiFetch(`/.netlify/functions/get-insurance`);
+        const insData = await insRes.json();
+        raw = insData?.documents_upload_form || "";
+      } catch (_) { /* ignore — we'll just have no forms */ }
+    }
+    return parseFormInputs(raw).map(f => f.formId).filter(Boolean).join(",");
+  }
+
+  // Staff-only: show a single student's uploaded documents in the shared modal.
+  // Reuses get-uploaded-documents (which authorizes a leader to read documents
+  // for any student on a trip they staff) and the same renderDocumentCard the
+  // Documents tab uses.
+  async function openStudentDocsModal(email, name) {
+    const modal = document.getElementById("appModal");
+    const subject = document.getElementById("appModalSubject");
+    const body = document.getElementById("appModalBody");
+    const titleEl = document.getElementById("appModalTitle");
+    if (!modal || !body) return;
+
+    if (titleEl) titleEl.textContent = "UPLOADED DOCUMENTS";
+    if (subject) subject.textContent = name || "";
+    body.innerHTML = `<div class="application-detail-empty">LOADING DOCUMENTS…</div>`;
+    modal.hidden = false;
+    document.body.style.overflow = "hidden";
+
+    if (!email) {
+      body.innerHTML = `<div class="application-detail-empty">No email on this student record.</div>`;
+      return;
+    }
+
+    try {
+      const ids = await resolveDocumentFormIds();
+      if (!ids) {
+        body.innerHTML = `<div class="docs-empty">Document upload form not configured.</div>`;
+        return;
+      }
+      const res = await apiFetch(
+        `/.netlify/functions/get-uploaded-documents?email=${encodeURIComponent(email)}&formIds=${encodeURIComponent(ids)}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        const detail = (data && data.error) ? data.error : `HTTP ${res.status}`;
+        body.innerHTML = `<div class="application-detail-empty">Could not load documents.<br><small style="color:#999; font-size:11px;">${attrEsc(detail)}</small></div>`;
+        return;
+      }
+      const documents = Array.isArray(data.documents) ? data.documents : [];
+      body.innerHTML = documents.length
+        ? `<div class="docs-grid">${documents.map(renderDocumentCard).join("")}</div>`
+        : `<div class="docs-empty">No documents uploaded yet.</div>`;
+    } catch (err) {
+      console.error("Student docs modal error:", err);
+      body.innerHTML = `<div class="application-detail-empty">Could not load documents.<br><small style="color:#999; font-size:11px;">${attrEsc(err.message || String(err))}</small></div>`;
+    }
+  }
+
   async function openApplicationModal(email, name, tripLeaderOnly) {
     const modal = document.getElementById("appModal");
     const subject = document.getElementById("appModalSubject");
