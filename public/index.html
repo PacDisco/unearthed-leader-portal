@@ -1889,6 +1889,57 @@
     return `<div class="tl-link-grid">${cards.join("")}</div>`;
   }
 
+  // Flight Tickets card (Expedition Leader + School Leader tabs).
+  //
+  // Flight tickets live in one shared Google Drive parent folder, with a
+  // per-trip sub-folder named to match this portal's title. The
+  // get-flight-tickets function finds that sub-folder and returns its link
+  // (or { url: null } when none exists yet). We only draw the card when a
+  // matching folder is found — so the button never shows for a trip whose
+  // folder hasn't been created/populated.
+  //
+  // Called AFTER the leader tab has rendered its resource grid; it injects a
+  // card into the existing `.tl-link-grid`, creating the grid if the tab had
+  // no other links. Fully fail-soft: any error just leaves the button hidden.
+  async function injectFlightTicketsCard(content) {
+    try {
+      const portalId = portalData.hs_object_id || "";
+      const name = portalData.portal_title || "";
+      if (!portalId && !name) return;
+
+      const qs = new URLSearchParams();
+      if (portalId) qs.set("portalId", portalId);
+      if (name) qs.set("name", name);
+
+      const res = await apiFetch(`/.netlify/functions/get-flight-tickets?${qs.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const url = data && data.url;
+      if (!url) return; // no matching folder → no button
+
+      // Guard against a late response landing after the user has navigated
+      // away to another tab.
+      if (!content || !content.isConnected) return;
+
+      const card = `
+        <div class="tl-link-card">
+          <div class="tl-link-title">FLIGHT TICKETS</div>
+          <a href="${url}" target="_blank" rel="noopener" class="tl-link-btn">OPEN FOLDER</a>
+        </div>`;
+
+      let grid = content.querySelector(".tl-link-grid");
+      if (grid) {
+        grid.insertAdjacentHTML("beforeend", card);
+      } else {
+        // No other resource links on this tab — create the grid at the top.
+        content.insertAdjacentHTML("afterbegin", `<div class="tl-link-grid">${card}</div>`);
+      }
+      styleLinksAsButtons();
+    } catch (err) {
+      console.warn("[flight-tickets] could not load flight tickets folder:", err);
+    }
+  }
+
   // ----- Message board -----
   // Track per-portal "last seen" timestamp in localStorage. If
   // portalData.message_board_posted_at is newer than that, the user has
@@ -2881,6 +2932,7 @@
         content.innerHTML  = linksHtml + richTextHtml;
         content.style.opacity = 1;
         styleLinksAsButtons();
+        injectFlightTicketsCard(content);
         await loadStudentList(content, { applicationModal: true });
         return;
       }
@@ -2900,6 +2952,7 @@
         content.innerHTML  = linksHtml + richTextHtml;
         content.style.opacity = 1;
         styleLinksAsButtons();
+        injectFlightTicketsCard(content);
         await loadStudentList(content, { expandable: true });
         return;
       }
