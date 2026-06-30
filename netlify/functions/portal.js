@@ -328,7 +328,9 @@ export async function handler(event) {
       "emergency_numbers__escalation",
       "expense__reimbursement_policies",
       "device_policies",
-      "child_protection_policy"
+      "child_protection_policy",
+      "budget_tracking_sheet",
+      "instructor_receipts"
     ].join(",");
 
     const tripPortalUrl   = `https://api.hubapi.com/crm/v3/objects/${OBJECT}/${portalId}?properties=${PORTAL_PROPERTIES}`;
