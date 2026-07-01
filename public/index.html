@@ -1649,18 +1649,36 @@
 </div>
 
 <script>
+  // Auth keys that must survive the app being fully closed (PWA reopened days
+  // later, possibly offline). sessionStorage is wiped on close, so the login
+  // page mirrors these into localStorage; here we rehydrate from that copy on a
+  // cold start so a leader who's offline in the field isn't bounced to login.
+  const PERSIST_KEYS = ["portalEmail", "portalToken", "adminRole", "leaderRole", "firstName"];
+  PERSIST_KEYS.forEach(k => {
+    const v = localStorage.getItem(k);
+    if (v !== null && sessionStorage.getItem(k) === null) sessionStorage.setItem(k, v);
+  });
+
   const email = sessionStorage.getItem("portalEmail");
   if (!email) window.location.href = "/login.html";
 
   // Authenticated fetch: attaches the signed session token so the serverless
-  // functions can verify the caller. On 401 (expired/invalid session) we
-  // clear state and return to login. Other statuses pass through.
+  // functions can verify the caller.
+  //
+  // OFFLINE (7-day) behaviour: the service worker serves saved copies of the
+  // read-only data endpoints for up to 7 days when the network is unreachable,
+  // so a normal fetch still resolves with cached JSON in the field. We only
+  // send the user back to login on a real 401 while we're actually ONLINE
+  // (a genuinely expired/revoked session that we could refresh) — never on an
+  // offline blip, an SW 503 "offline" response, or a network rejection, so the
+  // cached portal keeps working. The 12h token is unchanged; offline access is
+  // purely read-only cached data.
   function apiFetch(url, opts = {}) {
     const headers = Object.assign({}, opts.headers || {}, {
       Authorization: "Bearer " + (sessionStorage.getItem("portalToken") || "")
     });
     return window.fetch(url, Object.assign({}, opts, { headers })).then(res => {
-      if (res.status === 401) {
+      if (res.status === 401 && navigator.onLine) {
         try { sessionStorage.clear(); } catch (_) {}
         window.location.href = "/login.html";
         return new Promise(() => {});
@@ -1668,6 +1686,33 @@
       return res;
     });
   }
+
+  // ----- Offline / read-only mode -----
+  // Reflects connectivity in the UI: a banner tells the leader they're viewing
+  // saved data, and `document.body` gets an `is-offline` class that write
+  // actions check before hitting the server.
+  function isOffline() { return !navigator.onLine; }
+
+  function renderOfflineBanner() {
+    let bar = document.getElementById("offlineBanner");
+    if (isOffline()) {
+      document.body.classList.add("is-offline");
+      if (!bar) {
+        bar = document.createElement("div");
+        bar.id = "offlineBanner";
+        bar.style.cssText = "background:#8a5a00; color:#fff; padding:9px 16px; font-size:12px; letter-spacing:1px; text-align:center; position:sticky; top:0; z-index:9999;";
+        document.body.insertBefore(bar, document.body.firstChild);
+      }
+      bar.textContent = "OFFLINE — showing saved trip data (available for up to 7 days). Reconnect to refresh or make changes.";
+      bar.hidden = false;
+    } else {
+      document.body.classList.remove("is-offline");
+      if (bar) bar.hidden = true;
+    }
+  }
+  window.addEventListener("online", renderOfflineBanner);
+  window.addEventListener("offline", renderOfflineBanner);
+  document.addEventListener("DOMContentLoaded", renderOfflineBanner);
 
   // ----- Admin viewing mode -----
   // Admins land on /admin.html after login, then click a trip to view. We
@@ -2198,12 +2243,22 @@
   // We simply navigate same-origin; the editor handles loading, masking
   // sensitive fields, and saving.
   function openApplicationEdit(btn) {
+    if (isOffline()) {
+      alert("You're offline. Reconnect to the internet to edit your application.");
+      return false;
+    }
     window.location.href = "/edit-application.html";
     return false;
   }
 
   async function startCheckout(event, el) {
     event.preventDefault();
+    // Payments require a live, server-verified session — they can't be made
+    // from the offline read-only cache. Bail early with a clear message.
+    if (isOffline()) {
+      alert("You're offline. Reconnect to the internet to make a payment.");
+      return false;
+    }
     if (window.__stripeCheckoutBusy) return false;
     window.__stripeCheckoutBusy = true;
 
@@ -4023,10 +4078,18 @@
         keepalive: true
       });
     } catch (_) { /* ignore — clear locally regardless */ }
-    sessionStorage.removeItem("portalToken");
-    sessionStorage.removeItem("portalEmail");
-    sessionStorage.removeItem("adminRole");
-    sessionStorage.removeItem("firstName");
+    // Clear both the per-tab session and the persistent (offline) copy, and
+    // wipe saved trip data from the service-worker cache so a shared device
+    // doesn't retain the previous leader's data.
+    ["portalToken", "portalEmail", "adminRole", "leaderRole", "firstName"].forEach(k => {
+      sessionStorage.removeItem(k);
+      localStorage.removeItem(k);
+    });
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "CLEAR_OFFLINE_DATA" });
+      }
+    } catch (_) { /* best-effort */ }
     window.location.href = "/login.html";
   }
 

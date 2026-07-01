@@ -160,11 +160,30 @@
 </div>
 
 <script>
+  // Auth keys that must survive the app being fully closed (PWA reopened days
+  // later, possibly offline). sessionStorage is wiped on close, so we mirror
+  // these into localStorage and rehydrate from there. Non-auth UI flags stay
+  // in sessionStorage only.
+  const PERSIST_KEYS = ["portalEmail", "portalToken", "adminRole", "leaderRole", "firstName"];
+
+  // Rehydrate sessionStorage from the persistent copy on a cold start so a
+  // returning leader isn't bounced to login when their sessionStorage is empty.
+  PERSIST_KEYS.forEach(k => {
+    const v = localStorage.getItem(k);
+    if (v !== null && sessionStorage.getItem(k) === null) sessionStorage.setItem(k, v);
+  });
+
   // If already logged in go straight to the right landing page.
   // Admins land on /admin.html (the trip picker); everyone else on /index.html.
-  if (sessionStorage.getItem("portalEmail")) {
-    const role = sessionStorage.getItem("adminRole");
+  if (sessionStorage.getItem("portalEmail") || localStorage.getItem("portalEmail")) {
+    const role = sessionStorage.getItem("adminRole") || localStorage.getItem("adminRole");
     window.location.href = role ? "/admin.html" : "/index.html";
+  }
+
+  // Write an auth key to BOTH stores (persistent + this tab), or clear both.
+  function setAuth(key, value) {
+    if (value) { sessionStorage.setItem(key, value); localStorage.setItem(key, value); }
+    else { sessionStorage.removeItem(key); localStorage.removeItem(key); }
   }
 
   function showLogin() {
@@ -209,18 +228,14 @@
       const data = await res.json();
 
       if (data.success) {
-        sessionStorage.setItem("portalEmail", data.email || email);
+        setAuth("portalEmail", data.email || email);
         // Signed session token — sent as a Bearer header on every API call.
-        if (data.token) sessionStorage.setItem("portalToken", data.token);
-        else sessionStorage.removeItem("portalToken");
+        setAuth("portalToken", data.token || null);
         // Stash admin + leader metadata so admin.html and index.html can
         // detect the role without a second login round-trip.
-        if (data.adminRole) sessionStorage.setItem("adminRole", data.adminRole);
-        else sessionStorage.removeItem("adminRole");
-        if (data.leaderRole) sessionStorage.setItem("leaderRole", data.leaderRole);
-        else sessionStorage.removeItem("leaderRole");
-        if (data.firstName) sessionStorage.setItem("firstName", data.firstName);
-        else sessionStorage.removeItem("firstName");
+        setAuth("adminRole", data.adminRole || null);
+        setAuth("leaderRole", data.leaderRole || null);
+        setAuth("firstName", data.firstName || null);
         setTimeout(() => {
           // Admins → /admin.html (trip picker); everyone else → /index.html.
           window.location.href = data.adminRole ? "/admin.html" : "/index.html";
