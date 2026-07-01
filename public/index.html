@@ -1904,7 +1904,9 @@
   async function injectFlightTicketsCard(content) {
     try {
       const portalId = portalData.hs_object_id || "";
-      const name = portalData.portal_title || "";
+      // Folders are named to match the "Unearthed Program" (unearthed_program)
+      // value; fall back to portal_title if that isn't present.
+      const name = portalData.unearthed_program || portalData.portal_title || "";
       if (!portalId && !name) return;
 
       const qs = new URLSearchParams();

@@ -125,12 +125,15 @@ async function getAccessToken(sa) {
   return data.access_token;
 }
 
-// Look up the Portal title for a given portal id. Returns "" if unavailable.
-async function fetchPortalTitle(portalId) {
+// Look up the program name for a given portal id. The Drive sub-folders are
+// named to match the `unearthed_program` property (label "Unearthed Program"
+// in HubSpot, e.g. "Nayland College - Malaysia 2026"). We fall back to
+// portal_title / destination only if that's empty. Returns "" if unavailable.
+async function fetchPortalName(portalId) {
   if (!portalId) return "";
   try {
     const res = await fetch(
-      `https://api.hubapi.com/crm/v3/objects/${PORTAL_OBJECT}/${encodeURIComponent(portalId)}?properties=portal_title,destination`,
+      `https://api.hubapi.com/crm/v3/objects/${PORTAL_OBJECT}/${encodeURIComponent(portalId)}?properties=unearthed_program,portal_title,destination`,
       { headers: { Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}` } }
     );
     if (!res.ok) {
@@ -138,7 +141,8 @@ async function fetchPortalTitle(portalId) {
       return "";
     }
     const data = await res.json();
-    return (data.properties?.portal_title || "").trim();
+    const p = data.properties || {};
+    return (p.unearthed_program || p.portal_title || p.destination || "").trim();
   } catch (err) {
     console.error("[get-flight-tickets] HubSpot portal fetch error:", err.message);
     return "";
@@ -187,8 +191,8 @@ export async function handler(event) {
     const parentId = (process.env.FLIGHT_TICKETS_PARENT_FOLDER_ID || DEFAULT_PARENT_FOLDER_ID).trim();
 
     // Portal name: prefer resolving server-side from the portal id; fall back
-    // to a client-supplied name (the frontend already holds portal_title).
-    let portalName = await fetchPortalTitle(params.portalId);
+    // to a client-supplied name (the frontend already holds the program name).
+    let portalName = await fetchPortalName(params.portalId);
     if (!portalName && params.name) portalName = String(params.name).trim();
 
     if (!portalName) {

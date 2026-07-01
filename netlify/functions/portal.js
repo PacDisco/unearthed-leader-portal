@@ -253,7 +253,7 @@ export async function handler(event) {
     // ============================================================
     const PORTAL_PROPERTIES = [
       // Core trip metadata
-      "portal_title", "destination", "price", "program_currency",
+      "portal_title", "unearthed_program", "destination", "price", "program_currency",
       // Tab content (rich text)
       "trip_information_content", "destination_overview_content",
       "travel_information_content", "general_information_content",

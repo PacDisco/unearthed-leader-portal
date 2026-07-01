@@ -14,11 +14,11 @@ https://drive.google.com/drive/folders/11Bi_OQUZnB0HVj1u6Uw-dHSu_nF3Nw_4
 ```
 
 Inside it, create **one sub-folder per trip**, and name each sub-folder to
-match that trip's **Portal title** in HubSpot (the `portal_title` property —
-the same name shown on the trip picker).
+match that trip's **Unearthed Program** name in HubSpot (the
+`unearthed_program` property, e.g. "Nayland College - Malaysia 2026").
 
-When a leader opens their tab, the portal reads the trip's `portal_title`,
-looks inside the parent folder for a sub-folder with the same name
+When a leader opens their tab, the portal reads the trip's `unearthed_program`
+value, looks inside the parent folder for a sub-folder with the same name
 (case-insensitive, surrounding spaces ignored), and:
 
 - **Match found** → shows the Flight Tickets button linking to that sub-folder.
@@ -66,7 +66,7 @@ and is reused here to read the trip title.
 ## What was changed in the code
 
 - **`netlify/functions/get-flight-tickets.js`** (new) — authenticates the
-  logged-in user, resolves the trip's `portal_title` from HubSpot, lists the
+  logged-in user, resolves the trip's `unearthed_program` from HubSpot, lists the
   parent folder's sub-folders via the Drive API, and returns the matching
   sub-folder's link (or `{ url: null }`). It is fail-soft: if Google isn't
   configured or is unreachable, it returns no link and the button stays hidden
@@ -89,4 +89,4 @@ Netlify (Functions → `get-flight-tickets`). It logs a clear reason, e.g.:
 - `could not get Google access token` → key invalid, or Drive API not enabled.
 - `Drive list … 404/403` → folder not shared with the service account.
 - `no folder matching "<trip>"` → the sub-folder name doesn't match the trip's
-  `portal_title`.
+  `unearthed_program` value.
