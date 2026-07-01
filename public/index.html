@@ -1564,6 +1564,17 @@
   <button onclick="logout()" style="position:absolute; right:20px; top:20px; background:transparent; border:1px solid rgba(255,255,255,0.4); color:white; padding:6px 14px; font-size:11px; letter-spacing:1px; cursor:pointer; font-family:'Inter',sans-serif;">LOGOUT</button>
 </header>
 
+<!-- Save-for-offline action bar. Lets a leader pull down all of this trip's
+     data in one tap before heading somewhere without signal; the data then
+     stays viewable offline for 7 days (see saveForOffline()). -->
+<div id="offlineBar" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center; padding:12px 16px; background:#f5f1e6; border-bottom:1px solid #e4dcc7; font-family:'Inter',sans-serif;">
+  <button id="saveOfflineBtn" type="button" onclick="saveForOffline()"
+    style="background:#2d6b74; border:none; color:#fff; padding:9px 18px; font-size:12px; letter-spacing:1px; cursor:pointer; border-radius:4px; font-family:'Inter',sans-serif;">
+    ⬇ SAVE FOR OFFLINE
+  </button>
+  <span id="offlineStatus" style="font-size:11px; letter-spacing:0.5px; color:#6b6455;">Save this trip to view it without internet for up to 7 days.</span>
+</div>
+
 <div class="grid">
 
   <div class="tile" onclick="loadSection('trip_information_content')">
@@ -1673,7 +1684,29 @@
   // offline blip, an SW 503 "offline" response, or a network rejection, so the
   // cached portal keeps working. The 12h token is unchanged; offline access is
   // purely read-only cached data.
+  // The read-only data endpoints that are safe to cache for offline use. Must
+  // stay in sync with the CACHEABLE_API list in service-worker.js.
+  const CACHEABLE_ENDPOINTS = [
+    "/.netlify/functions/portal",
+    "/.netlify/functions/get-application-data",
+    "/.netlify/functions/get-students",
+    "/.netlify/functions/get-teachers",
+    "/.netlify/functions/get-insurance",
+    "/.netlify/functions/get-flight-tickets",
+    "/.netlify/functions/get-paid-payments",
+    "/.netlify/functions/get-uploaded-documents",
+    "/.netlify/functions/get-push-config"
+  ];
+  // Exact URLs (with their real params) the app has fetched this session, so
+  // "Save for offline" can re-request precisely what the app reads — and the
+  // service worker caches copies under matching keys.
+  const __fetchedUrls = new Set();
+
   function apiFetch(url, opts = {}) {
+    const method = (opts.method || "GET").toUpperCase();
+    if (method === "GET" && CACHEABLE_ENDPOINTS.some(p => url.includes(p))) {
+      __fetchedUrls.add(url);
+    }
     const headers = Object.assign({}, opts.headers || {}, {
       Authorization: "Bearer " + (sessionStorage.getItem("portalToken") || "")
     });
@@ -1685,6 +1718,98 @@
       }
       return res;
     });
+  }
+
+  // ----- Save this trip for offline use -----
+  // One tap pulls down every read-only data endpoint for this trip so the
+  // whole portal is viewable offline for 7 days — even sections the leader
+  // hasn't opened yet. Works by fetching each URL while online; the service
+  // worker stores a timestamped copy of each response.
+  const STUDENT_DOCS_FORM_ID_OFFLINE = "261220345497052"; // matches STUDENT_DOCS_FORM_ID
+
+  function offlineTargets() {
+    const portalId = (portalData && portalData.hs_object_id) || "";
+    const e = encodeURIComponent(email);
+    const urls = [
+      `/.netlify/functions/portal?email=${e}`,
+      `/.netlify/functions/get-application-data?email=${e}`,
+      `/.netlify/functions/get-insurance`,
+      `/.netlify/functions/get-paid-payments?email=${e}`,
+      `/.netlify/functions/get-uploaded-documents?email=${e}&formIds=${encodeURIComponent(STUDENT_DOCS_FORM_ID_OFFLINE)}`,
+      `/.netlify/functions/get-push-config`
+    ];
+    if (portalId) {
+      urls.push(`/.netlify/functions/get-students?portalId=${portalId}`);
+      urls.push(`/.netlify/functions/get-teachers?portalId=${portalId}`);
+      urls.push(`/.netlify/functions/get-flight-tickets?portalId=${portalId}`);
+    }
+    // Merge in the exact URLs already fetched this session (captures anything
+    // with params we didn't reconstruct above).
+    __fetchedUrls.forEach(u => urls.push(u));
+    return Array.from(new Set(urls));
+  }
+
+  const LAST_SAVED_KEY = "offlineSavedAt";
+
+  function setSaveStatus(msg) {
+    const s = document.getElementById("offlineStatus");
+    if (s) s.textContent = msg;
+  }
+
+  function refreshSavedStatus() {
+    const ts = Number(localStorage.getItem(LAST_SAVED_KEY) || 0);
+    if (!ts) return;
+    const d = new Date(ts);
+    setSaveStatus(`Saved ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — available offline for 7 days.`);
+  }
+
+  async function saveForOffline() {
+    const btn = document.getElementById("saveOfflineBtn");
+    if (isOffline()) {
+      alert("You're offline right now. Connect to the internet, then tap Save for offline.");
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.style.opacity = "0.6"; }
+    const urls = offlineTargets();
+    let ok = 0, fail = 0, done = 0;
+    setSaveStatus("Saving… 0%");
+    await Promise.all(urls.map(async (u) => {
+      try {
+        const res = await apiFetch(u);
+        if (res && res.ok) ok++; else fail++;
+      } catch (_) { fail++; }
+      done++;
+      setSaveStatus(`Saving… ${Math.round((done / urls.length) * 100)}%`);
+    }));
+    if (btn) { btn.disabled = false; btn.style.opacity = "1"; }
+
+    if (ok > 0) {
+      localStorage.setItem(LAST_SAVED_KEY, String(Date.now()));
+      refreshSavedStatus();
+      alert(`Saved. This trip is now available offline for 7 days${fail ? ` (${fail} item${fail === 1 ? "" : "s"} couldn't be saved and will need a connection)` : ""}.`);
+    } else {
+      setSaveStatus("Couldn't save — please check your connection and try again.");
+      alert("Couldn't save for offline. Please check your internet connection and try again.");
+    }
+  }
+
+  // Gentle one-time nudge so leaders know the option exists. Shown once per
+  // device (dismissal remembered), never when already offline.
+  function maybePromptSaveOffline() {
+    if (isOffline()) return;
+    if (localStorage.getItem("offlinePromptSeen") === "1") return;
+    if (localStorage.getItem(LAST_SAVED_KEY)) return; // already saved before
+    localStorage.setItem("offlinePromptSeen", "1");
+    setTimeout(() => {
+      const btn = document.getElementById("saveOfflineBtn");
+      if (btn) {
+        btn.style.boxShadow = "0 0 0 3px rgba(45,107,116,0.35)";
+        setTimeout(() => { btn.style.boxShadow = "none"; }, 4000);
+      }
+      if (confirm("Heading somewhere without reliable internet?\n\nTap OK to save this trip now so you can view it offline for up to 7 days.")) {
+        saveForOffline();
+      }
+    }, 1200);
   }
 
   // ----- Offline / read-only mode -----
@@ -2458,6 +2583,8 @@
       safeRun("loadSection",            () => loadSection("trip_information_content"));
       safeRun("showInstallPrompt",      () => showInstallPrompt());
       safeRun("showDesktopQr",          () => showDesktopQr());
+      safeRun("refreshSavedStatus",     () => refreshSavedStatus());
+      safeRun("maybePromptSaveOffline", () => maybePromptSaveOffline());
 
     } catch (err) {
       console.error("[init] threw:", err);
