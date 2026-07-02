@@ -1,7 +1,7 @@
 // Bump this string any time you ship a release that should bust the
 // install-time cache for previously-installed PWA users. The activate
 // handler below deletes any cache whose name doesn't match.
-const CACHE_NAME = "unearthed-leader-v10-offline-7day";
+const CACHE_NAME = "unearthed-leader-v11-offline-docs";
 const STATIC_FILES = ["/index.html", "/login.html", "/site.webmanifest"];
 
 // ---- Offline data cache (7-day read-only) ---------------------------------
@@ -114,10 +114,14 @@ self.addEventListener("fetch", e => {
 
   // API calls.
   if (url.includes("/.netlify/functions/") || url.includes("/document-proxy")) {
-    // Read-only data GETs the leader view needs: network-first, but fall back
-    // to a saved copy (up to 7 days old) when offline so the portal still
-    // renders in the field. Writes and non-GETs always go straight to network.
-    if (e.request.method === "GET" && isCacheableApi(url)) {
+    // Read-only data GETs the leader view needs — plus streamed documents
+    // (/document-proxy: passport scans, medical PDFs, portrait & teacher
+    // photos): network-first, but fall back to a saved copy (up to 7 days old)
+    // when offline so the portal still renders in the field. Document links
+    // carry the stable session token, so a file cached now is found under the
+    // same URL when the page re-renders the link offline. Writes and non-GETs
+    // always go straight to network.
+    if (e.request.method === "GET" && (isCacheableApi(url) || url.includes("/document-proxy"))) {
       e.respondWith((async () => {
         try {
           const res = await fetch(e.request);

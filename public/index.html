@@ -1763,6 +1763,47 @@
     setSaveStatus(`Saved ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — available offline for 7 days.`);
   }
 
+  // Pull every document link out of a fetched JSON body so the actual files
+  // (passport scans, medical PDFs, portrait & teacher photos) can be downloaded
+  // for offline viewing. Two kinds appear in the data:
+  //   (a) already-built  /document-proxy?url=…&token=…  links (portraits,
+  //       teacher photos, uploaded documents — the server builds these).
+  //   (b) raw upload URLs inside control_fileupload application fields, which
+  //       the page wraps with the session token at render time — we mirror
+  //       that here so the cached file matches the link rendered offline.
+  function collectDocUrls(text, out, token) {
+    if (!text) return;
+    let norm = text;
+    try { norm = JSON.stringify(JSON.parse(text)); } catch (_) {}
+    let m;
+    const re = /\/document-proxy\?url=[^"'\s\\]+/g;
+    while ((m = re.exec(norm))) out.add(m[0]);
+    try {
+      const walk = (o) => {
+        if (!o || typeof o !== "object") return;
+        if (Array.isArray(o)) { o.forEach(walk); return; }
+        if (String(o.type || "").toLowerCase() === "control_fileupload" && Array.isArray(o.value)) {
+          o.value.filter(Boolean).forEach(u => {
+            out.add(`/document-proxy?url=${encodeURIComponent(String(u))}` +
+              (token ? `&token=${encodeURIComponent(token)}` : ""));
+          });
+        }
+        Object.keys(o).forEach(k => walk(o[k]));
+      };
+      walk(JSON.parse(text));
+    } catch (_) {}
+  }
+
+  // Run async tasks over `items` with limited concurrency (keeps large trips
+  // from opening dozens of parallel document streams at once).
+  async function runPool(items, concurrency, worker) {
+    let i = 0;
+    async function next() {
+      while (i < items.length) { const idx = i++; await worker(items[idx], idx); }
+    }
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length || 1)) }, next));
+  }
+
   async function saveForOffline() {
     const btn = document.getElementById("saveOfflineBtn");
     if (isOffline()) {
@@ -1771,22 +1812,44 @@
     }
     if (btn) { btn.disabled = true; btn.style.opacity = "0.6"; }
     const urls = offlineTargets();
+    const token = sessionStorage.getItem("portalToken") || "";
+    const docUrls = new Set();
     let ok = 0, fail = 0, done = 0;
-    setSaveStatus("Saving… 0%");
+    setSaveStatus("Saving trip data… 0%");
     await Promise.all(urls.map(async (u) => {
       try {
         const res = await apiFetch(u);
-        if (res && res.ok) ok++; else fail++;
+        if (res && res.ok) {
+          ok++;
+          try { collectDocUrls(await res.text(), docUrls, token); } catch (_) {}
+        } else fail++;
       } catch (_) { fail++; }
       done++;
-      setSaveStatus(`Saving… ${Math.round((done / urls.length) * 100)}%`);
+      setSaveStatus(`Saving trip data… ${Math.round((done / urls.length) * 100)}%`);
     }));
+
+    // Download the actual document files so they open with no signal.
+    const docs = Array.from(docUrls);
+    if (docs.length) {
+      let dDone = 0;
+      await runPool(docs, 4, async (u) => {
+        try {
+          const r = await fetch(u);   // /document-proxy authenticates via &token= in the URL
+          await r.blob();             // read body so the service worker caches it
+          if (!r.ok) fail++;
+        } catch (_) { fail++; }
+        dDone++;
+        setSaveStatus(`Saving documents… ${dDone}/${docs.length}`);
+      });
+    }
+
     if (btn) { btn.disabled = false; btn.style.opacity = "1"; }
 
     if (ok > 0) {
       localStorage.setItem(LAST_SAVED_KEY, String(Date.now()));
       refreshSavedStatus();
-      alert(`Saved. This trip is now available offline for 7 days${fail ? ` (${fail} item${fail === 1 ? "" : "s"} couldn't be saved and will need a connection)` : ""}.`);
+      const docNote = docs.length ? ` Including ${docs.length} document${docs.length === 1 ? "" : "s"}.` : "";
+      alert(`Saved. This trip is now available offline for 7 days.${docNote}${fail ? ` (${fail} item${fail === 1 ? "" : "s"} couldn't be saved and will need a connection.)` : ""}`);
     } else {
       setSaveStatus("Couldn't save — please check your connection and try again.");
       alert("Couldn't save for offline. Please check your internet connection and try again.");
@@ -1838,6 +1901,26 @@
   window.addEventListener("online", renderOfflineBanner);
   window.addEventListener("offline", renderOfflineBanner);
   document.addEventListener("DOMContentLoaded", renderOfflineBanner);
+
+  // When offline, links pointing at an external site (manuals, itineraries,
+  // gear lists, insurance overviews, flight-ticket folders hosted on Google
+  // Drive/Dropbox/etc.) can't be opened — they're not ours to cache. Intercept
+  // those taps and explain, instead of opening a blank/broken tab. Same-origin
+  // /document-proxy files (which we DO cache) and in-app links are left alone.
+  document.addEventListener("click", (ev) => {
+    if (navigator.onLine) return;
+    const a = ev.target && ev.target.closest && ev.target.closest("a[href]");
+    if (!a) return;
+    const href = a.getAttribute("href") || "";
+    if (!href || href.startsWith("#") || href.startsWith("/document-proxy")) return;
+    let external = false;
+    try { external = new URL(href, location.href).origin !== location.origin; }
+    catch (_) { external = false; }
+    if (external) {
+      ev.preventDefault();
+      alert("This document is hosted on an external site (e.g. Google Drive) and needs an internet connection to open. Reconnect to view it.");
+    }
+  }, true);
 
   // ----- Admin viewing mode -----
   // Admins land on /admin.html after login, then click a trip to view. We
