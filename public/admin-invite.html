@@ -202,7 +202,14 @@
         body: JSON.stringify(payload)
       });
       if (res.status === 401) {
-        try { sessionStorage.clear(); } catch (_) {}
+        // Clear BOTH stores — auth keys are mirrored into localStorage and
+        // login.html rehydrates them, so clearing only sessionStorage would
+        // bounce us straight back and loop.
+        try {
+          sessionStorage.clear();
+          ["portalEmail", "portalToken", "adminRole", "leaderRole", "firstName"]
+            .forEach(k => localStorage.removeItem(k));
+        } catch (_) {}
         window.location.href = "/login.html";
         return;
       }
