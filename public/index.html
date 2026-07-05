@@ -1712,7 +1712,15 @@
     });
     return window.fetch(url, Object.assign({}, opts, { headers })).then(res => {
       if (res.status === 401 && navigator.onLine) {
-        try { sessionStorage.clear(); } catch (_) {}
+        // Expired/revoked session. Clear BOTH stores — the persistent auth
+        // keys live in localStorage too, and login.html rehydrates them into
+        // sessionStorage on load. If we only cleared sessionStorage, login
+        // would see the stale localStorage copy, bounce us back here, we'd
+        // 401 again, and the page would ping-pong in a fast reload loop.
+        try {
+          sessionStorage.clear();
+          PERSIST_KEYS.forEach(k => localStorage.removeItem(k));
+        } catch (_) {}
         window.location.href = "/login.html";
         return new Promise(() => {});
       }
