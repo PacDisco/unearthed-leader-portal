@@ -264,7 +264,14 @@
         headers: { Authorization: "Bearer " + (sessionStorage.getItem("portalToken") || "") }
       });
       if (res.status === 401 || res.status === 403) {
-        try { sessionStorage.clear(); } catch (_) {}
+        // Clear BOTH stores. Auth keys are mirrored into localStorage and
+        // login.html rehydrates them; clearing only sessionStorage lets the
+        // stale copy bounce us straight back into a reload loop.
+        try {
+          sessionStorage.clear();
+          ["portalEmail", "portalToken", "adminRole", "leaderRole", "firstName"]
+            .forEach(k => localStorage.removeItem(k));
+        } catch (_) {}
         window.location.href = "/login.html";
         return;
       }
