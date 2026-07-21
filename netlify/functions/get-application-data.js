@@ -7,8 +7,8 @@
 //   email   — the contact email to look up (required)
 //   formId  — comma-separated Jotform form ID(s); defaults to env
 //             JOTFORM_APPLICATION_FORM_ID, else
-//             "251396787451873,253477140703050,260388618557066" (the original application
-//             form + the newer version some students use).
+//             "251396787451873,253477140703050,260388618557066,250747665126866"
+//             (the original application form + newer versions some students use).
 //
 // Required env var: JOTFORM_API_KEY
 // Optional env var: JOTFORM_BASE_URL  (default https://api.jotform.com)
@@ -21,7 +21,7 @@ import { authenticate } from "./_shared/auth.js";
 import { assertEmailAccess } from "./_shared/portal-access.js";
 
 const DEFAULT_FORM_IDS = (process.env.JOTFORM_APPLICATION_FORM_ID
-  || "251396787451873,253477140703050,260388618557066")
+  || "251396787451873,253477140703050,260388618557066,250747665126866")
   .split(",").map(s => s.trim()).filter(Boolean);
 
 export async function handler(event) {
