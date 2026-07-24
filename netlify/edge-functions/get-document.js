@@ -124,11 +124,32 @@ export default async (request, context) => {
     status: 200,
     headers: {
       "Content-Type": contentType,
-      "Content-Disposition": `inline; filename="${filename}"`,
+      "Content-Disposition": contentDisposition(filename),
       "Cache-Control": "private, max-age=300"
     }
   });
 };
+
+// Build an RFC 6266-safe Content-Disposition header.
+//
+// HTTP header values must be valid ByteStrings (Latin-1, bytes 0-255). Jotform
+// filenames and iPhone photo names routinely contain non-ASCII characters
+// (accents, non-Latin scripts, emoji), and after decodeURIComponent those land
+// outside that range - so putting the raw name in `filename="..."` makes
+// `new Response()` throw `Value is not a valid ByteString` and crashes the whole
+// edge function. We emit an ASCII-only `filename=` fallback for old clients plus
+// a percent-encoded UTF-8 `filename*=` that modern browsers use to recover the
+// real name.
+function contentDisposition(filename) {
+  // ASCII fallback: replace any non-printable-ASCII char, plus quotes and
+  // backslashes that would break the quoted-string, with an underscore.
+  const asciiFallback =
+    (filename || "document").replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_") ||
+    "document";
+  // RFC 5987 encoding for the real, UTF-8 name.
+  const encoded = encodeURIComponent(filename || "document");
+  return `inline; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
+}
 
 // Best-effort MIME type from a filename extension. Covers the formats people
 // actually upload to the portal (passport/visa scans, medical docs, photos).
