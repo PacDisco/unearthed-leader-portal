@@ -60,10 +60,17 @@ Specifically confirm:
   or a different relationship property, adjust `PARENT_LABELS` /
   `RELATIONSHIP_PROPS` in `get-group-info.js`. (Leaders' own emergency contacts
   only appear if they have Parent associations or Jotform emergency fields.)
-- **Medical** — there is no single "condition" field, so Condition is derived
-  from yes/no questions (`yesNoTopics`) and Description from free-text fields
-  (`detailFields`). Tune those lists to taste. **Status** comes from the
-  `ue_student_status` contact property (Cleared / Discovery / …).
+- **Medical** — the actual medical/health questions & answers are pulled
+  straight from each application and listed on the page (question in **bold**,
+  their response after it). Which questions are considered is the
+  `medical.questions` list in `FIELD_MAP`; by default only questions answered
+  with something other than a plain No/None are shown — set
+  `medical.includeNegatives = true` for the full checklist including "No"s.
+  **Status** comes from the `ue_student_status` contact property (Cleared /
+  Discovery / …).
+- **Dietary (page 4)** — pulls the applicant's real dietary free-text answer and
+  appends any food allergies (`travel.dietary` + `travel.foodAllergies` in
+  `FIELD_MAP`). The airline-code legend stays on the page for reference.
 - **Age on Departure** — computed only if the Portal record has a departure-date
   property. Set the real property name in `DEPARTURE_DATE_PROPS` in
   `get-group-info.js`; otherwise the column is left blank (as in the workbook).

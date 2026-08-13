@@ -53,6 +53,13 @@
     return { text: esc(text), fillColor: C.headerBg, color: C.headerFg, bold: true, fontSize: 8 };
   }
 
+  // Header cell with extra props (colSpan / rowSpan / alignment).
+  function hcell(text, extra) {
+    var base = { text: esc(text), fillColor: C.headerBg, color: C.headerFg, bold: true, fontSize: 8 };
+    if (extra) for (var k in extra) base[k] = extra[k];
+    return base;
+  }
+
   function sectionRow(role, ncols) {
     var first = { text: esc(role), colSpan: ncols, fillColor: C.sectionBg, bold: true, fontSize: 8 };
     var row = [first];
@@ -127,33 +134,89 @@
   }
 
   function emergencySection(data) {
-    var cols = ["#", "First", "Last",
-                "Contact Name", "Contact Phone", "Contact Role",
-                "Contact Name", "Contact Phone", "Contact Role"];
-    var widths = [16, 60, 60, "*", 55, 50, "*", 55, 50];
-    return groupedSection("Emergency Contact Details", cols, widths,
-      data.emergency && data.emergency.groups, function (r) {
+    // Columns: # | First | Last | Guardian Contact 1 (Name, Phone) | Guardian Contact 2 (Name, Phone)
+    var ncols = 7;
+    var widths = [16, 72, 72, "*", 90, "*", 90];
+    var body = [];
+
+    body.push(titleBar("Emergency Contact Details", ncols));
+
+    // Two-row header: a grouped "Guardian Contact 1/2" label spanning each
+    // pair of Name/Phone columns; #, First, Last span both header rows.
+    body.push([
+      hcell("#", { rowSpan: 2 }),
+      hcell("First", { rowSpan: 2 }),
+      hcell("Last", { rowSpan: 2 }),
+      hcell("Guardian Contact 1", { colSpan: 2, alignment: "center" }), {},
+      hcell("Guardian Contact 2", { colSpan: 2, alignment: "center" }), {},
+    ]);
+    body.push([{}, {}, {}, headerCell("Name"), headerCell("Phone"), headerCell("Name"), headerCell("Phone")]);
+
+    var groups = (data.emergency && data.emergency.groups) || [];
+    var any = false;
+    groups.forEach(function (g) {
+      body.push(sectionRow(g.role, ncols));
+      (g.rows || []).forEach(function (r) {
         var c0 = r.contacts[0] || {}, c1 = r.contacts[1] || {};
-        return [cell(r.index), cell(r.first), cell(r.last),
-                cell(c0.name), cell(c0.phone), cell(c0.role),
-                cell(c1.name), cell(c1.phone), cell(c1.role)];
+        body.push([cell(r.index), cell(r.first), cell(r.last),
+                   cell(c0.name), cell(c0.phone), cell(c1.name), cell(c1.phone)]);
+        any = true;
       });
+    });
+    if (!any) {
+      body.push([{ text: "No people found for this program.", colSpan: ncols, italics: true, fontSize: 8 }]
+        .concat([{}, {}, {}, {}, {}, {}]));
+    }
+
+    return { pageBreak: "before", table: { headerRows: 3, widths: widths, body: body }, layout: GRID };
+  }
+
+  // A medical cell = a stack of the applicant's actual answers, each rendered as
+  // a bold question followed by their response.
+  function medicalCell(items) {
+    if (!items || !items.length) return { text: "—", fontSize: 8, color: "#999999" };
+    return {
+      stack: items.map(function (it, i) {
+        return {
+          fontSize: 8,
+          margin: [0, i ? 3 : 0, 0, 0],
+          text: [
+            { text: esc(it.question), bold: true },
+            { text: "  " + esc(it.answer) },
+          ],
+        };
+      }),
+    };
   }
 
   function medicalSection(data) {
-    var cols = ["#", "First", "Last", "Medical Condition", "Description", "Status"];
-    var widths = [16, 65, 65, 120, "*", 55];
-    return groupedSection("Team Medical Conditions", cols, widths,
-      data.medical && data.medical.groups, function (r) {
-        return [cell(r.index), cell(r.first), cell(r.last),
-                cell(r.condition), cell(r.description), cell(r.status)];
+    var ncols = 5;
+    var widths = [16, 72, 72, "*", 58];
+    var body = [];
+    body.push(titleBar("Team Medical Conditions", ncols));
+    body.push([headerCell("#"), headerCell("First"), headerCell("Last"),
+               headerCell("Medical Information (from application)"), headerCell("Status")]);
+
+    var groups = (data.medical && data.medical.groups) || [];
+    var any = false;
+    groups.forEach(function (g) {
+      body.push(sectionRow(g.role, ncols));
+      (g.rows || []).forEach(function (r) {
+        body.push([cell(r.index), cell(r.first), cell(r.last), medicalCell(r.items), cell(r.status)]);
+        any = true;
       });
+    });
+    if (!any) {
+      body.push([{ text: "No people found for this program.", colSpan: ncols, italics: true, fontSize: 8 }, {}, {}, {}, {}]);
+    }
+
+    return { pageBreak: "before", table: { headerRows: 2, widths: widths, body: body }, layout: GRID };
   }
 
   function travelSection(data) {
     var cols = ["#", "First Name", "Last Name", "Gender", "Date of Birth",
-                "Age on Departure", "Passport Number", "Country of Issue", "Expiry Date", "Dietary Req."];
-    var widths = [14, 62, 62, 34, 58, 40, 66, 66, 58, 46];
+                "Age on Departure", "Passport Number", "Country of Issue", "Expiry Date", "Dietary Requirement"];
+    var widths = [14, 64, 64, 30, 54, 36, 62, 58, 54, "*"];
     var section = groupedSection("Passenger Details for Travel", cols, widths,
       data.travel && data.travel.groups, function (r) {
         return [cell(r.index), cell(r.first), cell(r.last), cell(r.gender),

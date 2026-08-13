@@ -64,8 +64,9 @@ export const FIELD_MAP = {
     passportNumber:  ["Passport Number"],                                            // confirmed in index.html whitelist
     passportCountry: ["Country of Issue on Passport", "Country of Issue"],           // confirmed
     passportExpiry:  ["Expiry Date", "Passport Expiry Date"],                        // confirmed
-    dietary:         ["Dietary Req.", "Dietary Requirements",
-                      "Dietary Restrictions or Preferences eg Vegetarian, celiac, gluten free?"], // VERIFY
+    dietary:         ["Dietary Restrictions or Preferences eg Vegetarian, celiac, gluten free?",
+                      "Dietary Requirements", "Dietary Restrictions or Preferences", "Dietary Req."], // VERIFY
+    foodAllergies:   ["Do you have any food allergies?", "Any food allergies?"], // VERIFY
   },
 
   // Sheet 2 — Emergency contacts. Jotform emergency-contact questions vary a
@@ -85,36 +86,38 @@ export const FIELD_MAP = {
     ],
   },
 
-  // Sheet 3 — Medical. There is no single "condition" field on the form, so we
-  // derive it: any of these yes/no questions answered affirmatively contributes
-  // its short topic to the Condition column, and the free-text fields below are
-  // concatenated into Description. `ue_student_status` (HubSpot) is the Status.
+  // Sheet 3 — Medical. The actual medical/health questions & answers are pulled
+  // straight from the application. Each question the applicant answered (with
+  // anything other than a plain No/None — unless `includeNegatives` is true) is
+  // shown as: **question** answer. `ue_student_status` (HubSpot) is the Status.
   medical: {
-    // question label (matched loosely) -> short topic shown in "Medical Condition"
-    yesNoTopics: {
-      "Respiratory Problems or Asthma?": "Asthma/Respiratory",
-      "Migraines or Headaches?": "Migraines",
-      "Skin Disorders?": "Skin",
-      "Muscular-skeletel Problems?": "Musculoskeletal",
-      "Diabetes?": "Diabetes",
-      "Claustrophobia or Motion Sickness?": "Motion Sickness",
-      "Neurological problems or seizures? (i.e. autism, etc.)": "Neurological",
-      "Allergic reactions to Medications?": "Medication Allergy",
-      "Any chronic medical conditions? (heart conditions, hearing loss, IBS, etc.)": "Chronic Condition",
-      "Any chronic mental health conditions? (i.e. psychosis, bipolar disorder, etc.)": "Mental Health",
-      "Do you suffer from anxiety, depression, ADHD or other mood disorders?": "Mood Disorder",
-      "Do you have any food allergies?": "Food Allergy",
-      "Any non-food relate allergies or illnesses?": "Other Allergy/Illness",
-    }, // VERIFY the exact question wording against your form
-    // free-text fields whose answers are concatenated into "Description"
-    detailFields: [
-      "If you answered YES to any of the above, please provide more information",
+    questions: [
+      "Respiratory Problems or Asthma?",
+      "Migraines or Headaches?",
+      "Skin Disorders?",
+      "Muscular-skeletel Problems?",
+      "Diabetes?",
+      "Claustrophobia or Motion Sickness?",
+      "Neurological problems or seizures? (i.e. autism, etc.)",
+      "Allergic reactions to Medications?",
       "Any chronic medical conditions? (heart conditions, hearing loss, IBS, etc.)",
+      "Any chronic mental health conditions? (i.e. psychosis, bipolar disorder, etc.)",
+      "Have you ever had any suicidal ideation?",
+      "Have you ever self-harmed?",
       "Do you currently take, or have been prescribed, any medications?",
-      "Do you have any food allergies?",
+      "If you answered YES to any of the above, please provide more information",
+      "Have you attended a mental health practitioner, more than once, in the last 2 years?",
+      "Do you suffer from anxiety, depression, ADHD or other mood disorders?",
+      "Have you ever been, or are you currently being treated for substance abuse?",
+      "Do you have any physical, psychological, or chronic conditions that may impact your participation in physical activities?",
+      "Have you been admitted to hospital in the last 3 years?",
       "Any non-food relate allergies or illnesses?",
-      "Dietary Restrictions or Preferences eg Vegetarian, celiac, gluten free?",
-    ], // VERIFY
+      "Do you have any food allergies?",
+      "Does the student have objection to blood transfusions? (in case of medical emergency)",
+      "Does the student have objection to immunisations?",
+    ], // VERIFY these match your application's medical/health questions
+    // true = also list questions answered "No"/"None" (full checklist view).
+    includeNegatives: false,
   },
 };
 
@@ -185,28 +188,22 @@ function emergencyRow(index, person, fields) {
 
 function medicalRow(index, person, fields) {
   const { first, last } = splitName(person);
+  const includeNeg = !!FIELD_MAP.medical.includeNegatives;
 
-  const topics = [];
-  for (const [label, topic] of Object.entries(FIELD_MAP.medical.yesNoTopics)) {
+  // Pull the actual question/answer pairs from the application, in form order.
+  const items = [];
+  for (const label of FIELD_MAP.medical.questions) {
     const v = fieldValue(fields, [label]);
-    if (isAffirmative(v)) topics.push(topic);
-  }
-
-  const details = [];
-  for (const label of FIELD_MAP.medical.detailFields) {
-    const v = fieldValue(fields, [label]);
-    if (isAffirmative(v)) {
-      const short = label.replace(/\?.*$/, "").replace(/\s*\(.*?\)\s*/g, " ").trim();
-      details.push(`${short}: ${v}`);
-    }
+    if (!v) continue;
+    if (!includeNeg && !isAffirmative(v)) continue;
+    items.push({ question: label, answer: v });
   }
 
   return {
     index,
     first,
     last,
-    condition: topics.join(", "),
-    description: details.join(" | "),
+    items,
     status: (person.status || "").trim(),
   };
 }
@@ -227,6 +224,16 @@ function travelRow(index, person, fields, departureDate) {
   const { first, last } = splitName(person);
   const t = FIELD_MAP.travel;
   const dob = fieldValue(fields, t.dateOfBirth);
+
+  // Actual dietary requirement, pulled from the application free-text answer,
+  // combined with any food allergies so the column reflects real needs.
+  const dietaryText = fieldValue(fields, t.dietary);
+  const foodAllergy = fieldValue(fields, t.foodAllergies);
+  let dietary = dietaryText;
+  if (isAffirmative(foodAllergy)) {
+    dietary = dietary ? `${dietary}; Food allergies: ${foodAllergy}` : `Food allergies: ${foodAllergy}`;
+  }
+
   return {
     index,
     first,
@@ -237,7 +244,7 @@ function travelRow(index, person, fields, departureDate) {
     passportNumber: fieldValue(fields, t.passportNumber),
     passportCountry: fieldValue(fields, t.passportCountry),
     passportExpiry: fieldValue(fields, t.passportExpiry),
-    dietary: fieldValue(fields, t.dietary),
+    dietary,
   };
 }
 
