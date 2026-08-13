@@ -155,20 +155,31 @@ function motivationRow(person, fields) {
 
 function emergencyRow(index, person, fields) {
   const { first, last } = splitName(person);
-  const contacts = FIELD_MAP.emergency.contacts.map(c => ({
+
+  // Emergency contacts are the student's HubSpot *Parent* contacts — that's the
+  // authoritative source for name + phone. The Jotform emergency-contact fields
+  // (if the form has them) are only used to backfill anything the parent record
+  // is missing, and to supply a relationship/role when the parent association
+  // didn't carry one.
+  const parents = Array.isArray(person.parents) ? person.parents : [];
+  const jf = FIELD_MAP.emergency.contacts.map(c => ({
     name: fieldValue(fields, c.name),
     phone: fieldValue(fields, c.phone),
     role: fieldValue(fields, c.role),
   }));
 
-  // Fallback: if no Jotform emergency contact found, use HubSpot parents
-  // (name + phone; role blank) so students aren't left empty.
-  const anyContact = contacts.some(c => c.name || c.phone || c.role);
-  if (!anyContact && Array.isArray(person.parents) && person.parents.length) {
-    person.parents.slice(0, 2).forEach((p, i) => {
-      contacts[i] = { name: p.name || "", phone: p.phone || "", role: "" };
-    });
-  }
+  const contacts = [0, 1].map(i => {
+    const p = parents[i] || {};
+    const j = jf[i] || {};
+    return {
+      name: p.name || j.name || "",
+      phone: p.phone || j.phone || "",
+      // Prefer the parent's own relationship (from the HubSpot association
+      // label / property); fall back to the Jotform relationship field.
+      role: p.role || j.role || "",
+    };
+  });
+
   return { index, first, last, contacts };
 }
 

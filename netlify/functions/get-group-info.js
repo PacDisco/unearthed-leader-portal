@@ -180,8 +180,25 @@ async function readContacts(ids, headers, isStudent) {
   return people;
 }
 
-// Parent contacts (name + phone) for the emergency-contact fallback. Same
-// association pattern as get-students.js.
+// Emergency contacts = the student's associated Parent/guardian contacts.
+// Returns [{ name, email, phone, role }]. `role` is the relationship, taken
+// from the HubSpot association label when it names one (e.g. "Mother",
+// "Father", "Guardian") or from a relationship property on the parent contact;
+// blank when neither is set (the assembler then falls back to any Jotform
+// relationship field).
+
+// Association labels that mark a contact as an emergency/parent contact.
+const PARENT_LABELS = ["parent", "mother", "father", "guardian", "caregiver", "carer",
+                       "step-parent", "step parent", "grandparent", "next of kin", "emergency contact"]; // VERIFY
+// Generic labels that are NOT a usable relationship on their own.
+const GENERIC_PARENT_LABELS = new Set(["parent", "contact", "emergency contact"]);
+// Contact properties that may hold a free-text relationship, tried in order.
+const RELATIONSHIP_PROPS = ["relationship_to_student", "parent_relationship", "contact_relationship", "relationship"]; // VERIFY
+
+function titleCase(s) {
+  return String(s || "").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
 async function fetchParents(contactId, headers) {
   try {
     const r = await fetch(
@@ -190,9 +207,21 @@ async function fetchParents(contactId, headers) {
     );
     if (!r.ok) return [];
     const d = await r.json();
-    const parentIds = (d.results || [])
-      .filter(x => x.associationTypes?.some(t => t.label === "Parent"))
-      .map(x => x.toObjectId);
+
+    // Keep parent contacts + the relationship label their association carries.
+    const roleById = new Map();
+    const parentIds = [];
+    for (const x of d.results || []) {
+      const labels = (x.associationTypes || [])
+        .map(t => String(t.label || "").trim())
+        .filter(Boolean);
+      const isParent = labels.some(l => PARENT_LABELS.includes(l.toLowerCase()));
+      if (!isParent) continue;
+      parentIds.push(x.toObjectId);
+      // A relationship label = the first non-generic parent label.
+      const rel = labels.find(l => PARENT_LABELS.includes(l.toLowerCase()) && !GENERIC_PARENT_LABELS.has(l.toLowerCase()));
+      if (rel) roleById.set(String(x.toObjectId), titleCase(rel));
+    }
     if (parentIds.length === 0) return [];
 
     const pr = await fetch("https://api.hubapi.com/crm/v3/objects/contacts/batch/read", {
@@ -200,16 +229,26 @@ async function fetchParents(contactId, headers) {
       headers,
       body: JSON.stringify({
         inputs: parentIds.map(id => ({ id: String(id) })),
-        properties: ["firstname", "lastname", "email", "phone"],
+        properties: ["firstname", "lastname", "email", "phone", ...RELATIONSHIP_PROPS],
       }),
     });
     if (!pr.ok) return [];
     const pd = await pr.json();
-    return (pd.results || []).map(p => ({
-      name: `${p.properties.firstname || ""} ${p.properties.lastname || ""}`.trim(),
-      email: p.properties.email || "",
-      phone: p.properties.phone || "",
-    }));
+    return (pd.results || []).map(p => {
+      const props = p.properties || {};
+      let role = roleById.get(String(p.id)) || "";
+      if (!role) {
+        for (const key of RELATIONSHIP_PROPS) {
+          if (props[key]) { role = String(props[key]).trim(); break; }
+        }
+      }
+      return {
+        name: `${props.firstname || ""} ${props.lastname || ""}`.trim(),
+        email: props.email || "",
+        phone: props.phone || "",
+        role,
+      };
+    });
   } catch (_) {
     return [];
   }

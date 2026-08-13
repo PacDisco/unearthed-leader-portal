@@ -51,11 +51,15 @@ Specifically confirm:
 - **Travel** — `Gender`, `Date of Birth`, and `Dietary Req.` labels (Passport
   Number / Country of Issue / Expiry Date are already confirmed against the
   trip-leader whitelist in `index.html`).
-- **Emergency contacts** — the biggest unknown. Set the two contacts' Name /
-  Phone / Relationship labels to your form's actual questions. If your form has
-  no emergency-contact questions, the export falls back to each student's HubSpot
-  **Parent** contacts (name + phone; role blank), which is why parents show up in
-  the sample.
+- **Emergency contacts** — these are filled from each student's HubSpot
+  **Parent** contacts (Contact Name + Contact Phone), which is the authoritative
+  source. The **role** (Mother/Father/Guardian) comes from the parent's HubSpot
+  association label if it names the relationship, else a relationship property on
+  the parent contact (`RELATIONSHIP_PROPS` in `get-group-info.js`), else the
+  Jotform relationship field. If your parent associations use non-standard labels
+  or a different relationship property, adjust `PARENT_LABELS` /
+  `RELATIONSHIP_PROPS` in `get-group-info.js`. (Leaders' own emergency contacts
+  only appear if they have Parent associations or Jotform emergency fields.)
 - **Medical** — there is no single "condition" field, so Condition is derived
   from yes/no questions (`yesNoTopics`) and Description from free-text fields
   (`detailFields`). Tune those lists to taste. **Status** comes from the
