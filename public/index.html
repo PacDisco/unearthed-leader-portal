@@ -1659,6 +1659,7 @@
   </div>
 </div>
 
+<script src="/group-pdf.js"></script>
 <script>
   // Auth keys that must survive the app being fully closed (PWA reopened days
   // later, possibly offline). sessionStorage is wiped on close, so the login
@@ -3122,6 +3123,42 @@
     `;
   }
 
+  // Expedition Leader tab: the "DOWNLOAD GROUP INFORMATION (PDF)" card. The
+  // heavy lifting (fetch /get-group-info + render the 4-sheet PDF with pdfmake)
+  // lives in /group-pdf.js (window.GroupPdf). This just renders the card and
+  // wires the click to that module, passing the authed apiFetch + current trip.
+  function renderGroupDownloadCard() {
+    return `
+      <div id="groupDownloadCard" style="margin:18px 0; padding:16px; border:1px solid #e0d9c9; border-radius:10px; background:#faf7ef;">
+        <div style="font-size:13px; letter-spacing:1px; font-weight:700; margin-bottom:6px;">GROUP INFORMATION</div>
+        <div style="font-size:12px; color:#666; margin-bottom:12px;">
+          Motivations, emergency contacts, medical details and travel / passport details for the
+          whole team &mdash; Expedition Leader, School Leaders and Students &mdash; as a single PDF.
+        </div>
+        <button id="groupDownloadBtn" class="student-expand-btn" type="button">DOWNLOAD GROUP INFORMATION (PDF)</button>
+        <div id="groupDownloadStatus" style="color:#c0392b; font-size:12px; margin-top:8px;"></div>
+      </div>`;
+  }
+
+  function wireGroupDownloadButton(container) {
+    const btn = container.querySelector("#groupDownloadBtn");
+    const statusEl = container.querySelector("#groupDownloadStatus");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      if (!window.GroupPdf || typeof window.GroupPdf.downloadGroupInfoPdf !== "function") {
+        if (statusEl) statusEl.textContent = "PDF module failed to load. Please refresh and try again.";
+        return;
+      }
+      const portalId = (portalData && portalData.hs_object_id) || "";
+      window.GroupPdf.downloadGroupInfoPdf({
+        portalId,
+        apiFetch,
+        button: btn,
+        setStatus: (msg) => { if (statusEl) statusEl.textContent = msg || ""; },
+      });
+    });
+  }
+
   function loadSection(field) {
     // Refuse to render the two leader-only sections unless applyVisibility()
     // has positively confirmed the current user is allowed to see them.
@@ -3224,9 +3261,10 @@
         //      Information modal (filtered subset of the application form).
         const linksHtml    = renderResourceLinkGrid(TRIP_LEADER_LINKS);
         const richTextHtml = portalData[field] || "";
-        content.innerHTML  = linksHtml + richTextHtml;
+        content.innerHTML  = linksHtml + richTextHtml + renderGroupDownloadCard();
         content.style.opacity = 1;
         styleLinksAsButtons();
+        wireGroupDownloadButton(content);
         injectFlightTicketsCard(content);
         await loadStudentList(content, { expandable: true });
         return;
