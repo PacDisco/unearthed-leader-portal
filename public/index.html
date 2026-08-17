@@ -454,6 +454,13 @@
       font-size: 11px;
     }
 
+    /* Refunds (negative payment_N values) — same chip, warm tone so a credit
+       is distinguishable from a payment at a glance. */
+    .student-card .payments-list span.is-refund {
+      background: #f7e9e4;
+      color: #9a4a2f;
+    }
+
     /* TEACHERS-TAB-ONLY school fields on the student card.
        Sits above the parents section. Container draws the same rule the
        parent section uses so the whole card stays visually consistent. */
@@ -3778,7 +3785,14 @@
 
       data.students.forEach(student => {
         const paymentsHtml = student.payments.length
-          ? student.payments.map(p => `<span>${fmtCurrency(p.amount, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>`).join("")
+          ? student.payments.map(p => {
+              // Negative amounts are refunds — flag them so they read as a
+              // credit rather than looking like an oddly-formatted payment.
+              const isRefund = p.isRefund || parseFloat(p.amount) < 0;
+              const cls = isRefund ? ' class="is-refund"' : "";
+              const title = isRefund ? ' title="Refund"' : "";
+              return `<span${cls}${title}>${fmtCurrency(p.amount, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>`;
+            }).join("")
           : "<span>No payments recorded</span>";
 
         const parentsHtml = student.parents.length
