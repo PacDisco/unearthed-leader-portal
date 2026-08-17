@@ -186,15 +186,19 @@ function parsePaymentEntry(raw) {
 
   const tokens = withoutPi.split(",").map(s => s.trim()).filter(Boolean);
 
-  // First non-date numeric token = amount
+  // First non-date numeric token = amount. Negatives are kept: a refund is
+  // recorded as a negative payment_N and must not be silently dropped.
   let amount = null;
   for (const tok of tokens) {
     if (looksLikeDate(tok)) continue;
-    const cleaned = tok.replace(/[^0-9.\-]/g, "");
+    const parenNegative = /^[^\d-]*\(\s*[^)]*\d[^)]*\)/.test(tok);
+    let cleaned = tok.replace(/[^0-9.\-]/g, "");
     if (!cleaned || cleaned === "-" || cleaned === ".") continue;
+    const negative = parenNegative || cleaned.startsWith("-");
+    cleaned = cleaned.replace(/-/g, "");
     const n = parseFloat(cleaned);
-    if (isFinite(n) && n > 0) {
-      amount = n;
+    if (isFinite(n) && n !== 0) {
+      amount = negative ? -n : n;
       break;
     }
   }
