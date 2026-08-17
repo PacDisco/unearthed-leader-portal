@@ -266,9 +266,15 @@ async function fetchStudentPayments(contactId, headers) {
   for (let i = 1; i <= 10; i++) {
     const raw = deal.properties?.[`payment_${i}`];
     const amount = extractPaymentAmount(raw);
-    if (amount != null && amount > 0) {
+    // Negative amounts are refunds — include them so they show on the card
+    // and subtract from the total.
+    if (amount != null && amount !== 0) {
       totalPaid += amount;
-      payments.push({ label: `Payment ${i}`, amount });
+      payments.push({
+        label: amount < 0 ? `Refund ${i}` : `Payment ${i}`,
+        amount,
+        isRefund: amount < 0
+      });
     }
   }
 
@@ -365,15 +371,26 @@ async function loadPortraitsByEmail() {
 // stored in the loose "<amount>, <stripe_pi>, <date>" format on the Deal
 // object. Tolerates messy formats — strips any non-digit chars from the first
 // comma-separated token, returns null if nothing valid is left.
+//
+// NOTE: negative amounts are valid. A refund is recorded as a negative
+// payment_N (e.g. "-250, pi_xxx, 2026-04-02") and must flow through to the
+// student card and reduce the total paid. Only 0 / unparseable values are
+// dropped.
 function extractPaymentAmount(raw) {
   if (!raw || typeof raw !== "string") return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const first = trimmed.split(",")[0].trim();
+  // Accounting-style negatives: "(250)", "$(250)" → -250
+  const parenNegative = /^[^\d-]*\(\s*[^)]*\d[^)]*\)/.test(first);
   // Keep digits, dots, minus; drop currency symbols, letters, etc.
-  const cleaned = first.replace(/[^0-9.\-]/g, "");
+  let cleaned = first.replace(/[^0-9.\-]/g, "");
   if (!cleaned || cleaned === "-" || cleaned === ".") return null;
-  const n = parseFloat(cleaned);
-  if (!isFinite(n) || n <= 0) return null;
+  // Only a leading minus is meaningful; drop any stray inner hyphens.
+  const negative = parenNegative || cleaned.startsWith("-");
+  cleaned = cleaned.replace(/-/g, "");
+  let n = parseFloat(cleaned);
+  if (!isFinite(n) || n === 0) return null;
+  if (negative) n = -n;
   return n;
 }
