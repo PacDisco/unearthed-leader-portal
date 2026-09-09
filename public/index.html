@@ -2743,6 +2743,58 @@
     });
   }
 
+  // ============================================================
+  // === FLIGHT DATES / TIMES ===
+  // Flight times must read the same for everyone. `formatDate` above renders
+  // in the VIEWER's timezone, so a departure entered in HubSpot as 12 March
+  // 06:30 NZ showed a parent in Los Angeles "Wednesday, 11 March, 10:30 am" —
+  // wrong time, wrong day, and no way for them to know which was meant.
+  //
+  // These values are entered by the office in NZ time and are meant to be
+  // read as written, so they are rendered in a fixed zone rather than the
+  // browser's. Only the flight cards use this; itinerary events and payment
+  // due dates still go through formatDate.
+  // ============================================================
+  const FLIGHT_TIME_ZONE = "Pacific/Auckland";
+
+  // Date + time as entered, identical in every timezone.
+  //
+  // HubSpot sends these as epoch milliseconds, which name a real instant and
+  // are simply rendered in FLIGHT_TIME_ZONE. A naive string ("2026-03-12" or
+  // "2026-03-12T06:30") names no instant at all — the browser would resolve
+  // it against its OWN offset, which is the bug in miniature — so its digits
+  // are read as written and printed back unchanged.
+  function formatFlightDate(val) {
+    if (val === null || val === undefined || String(val).trim() === "") {
+      return '<span class="tbc">TBC</span>';
+    }
+    const raw = String(val).trim();
+
+    const naive = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?$/.exec(raw);
+    if (naive) {
+      const hasTime = naive[4] !== undefined;
+      // Built in UTC and printed in UTC, so the components come back out
+      // exactly as they went in — this is a formatting trick, not a timezone
+      // claim. The weekday still comes from the real calendar.
+      const dt = new Date(Date.UTC(
+        Number(naive[1]), Number(naive[2]) - 1, Number(naive[3]),
+        hasTime ? Number(naive[4]) : 0, hasTime ? Number(naive[5]) : 0
+      ));
+      if (isNaN(dt.getTime())) return raw;
+      const opts = { timeZone: "UTC", weekday: "long", year: "numeric", month: "long", day: "numeric" };
+      if (hasTime) { opts.hour = "2-digit"; opts.minute = "2-digit"; }
+      return dt.toLocaleDateString("en-NZ", opts);
+    }
+
+    const dt = /^-?\d+$/.test(raw) ? new Date(Number(raw)) : new Date(raw);
+    if (isNaN(dt.getTime())) return raw;
+    return dt.toLocaleDateString("en-NZ", {
+      timeZone: FLIGHT_TIME_ZONE,
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    });
+  }
+
   function formatDateShort(val) {
     if (!val) return null;
     const d = new Date(val);
@@ -2836,7 +2888,7 @@
       <div class="flights-grid">
         <div class="flight-card">
           <h4>DEPARTURE FLIGHT</h4>
-          <div class="flight-date">${formatDate(p.flight_departure_date)}</div>
+          <div class="flight-date">${formatFlightDate(p.flight_departure_date)}</div>
           <div class="readmore-content">
             ${detail("Airline(s)", p.departure_airlines)}
             ${detail("Routing", p.departure_routing)}
@@ -2844,7 +2896,7 @@
         </div>
         <div class="flight-card return">
           <h4>RETURN FLIGHT</h4>
-          <div class="flight-date">${formatDate(p.return_flight_date)}</div>
+          <div class="flight-date">${formatFlightDate(p.return_flight_date)}</div>
           <div class="readmore-content">
             ${detail("Airline(s)", p.return_flight_airlines)}
             ${detail("Routing", p.return_flight_routing)}
