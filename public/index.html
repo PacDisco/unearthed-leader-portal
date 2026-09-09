@@ -1488,6 +1488,18 @@
 
     .docs-card .docs-link:hover { opacity: 0.85; }
 
+    /* Explains that a document list pools the whole household's uploads.
+       Only rendered when someone other than the viewer has uploaded. */
+    .docs-shared-note {
+      color: #777;
+      font-size: 12px;
+      line-height: 1.5;
+      padding: 8px 0 4px;
+      letter-spacing: 0.3px;
+    }
+
+    .docs-shared-note--warn { color: #b45309; }
+
     .docs-empty {
       color: #999;
       font-size: 13px;
@@ -3349,6 +3361,7 @@
   async function loadDocumentsTab(content) {
     let formInputs = [];     // [{ url, formId, origin }]
     let documents = [];
+    let docsData = null;     // full payload, kept for the household note
     let formTitlesById = {}; // { formId: title }
     let docsError = null;
 
@@ -3375,7 +3388,7 @@
           const docsRes = await apiFetch(
             `/.netlify/functions/get-uploaded-documents?email=${encodeURIComponent(email)}&formIds=${encodeURIComponent(ids)}`
           );
-          const docsData = await docsRes.json();
+          docsData = await docsRes.json();
           if (docsData.error) docsError = docsData.error;
           documents = Array.isArray(docsData.documents) ? docsData.documents : [];
           (docsData.forms || []).forEach(f => {
@@ -3391,14 +3404,17 @@
     // 3. Build the page.
     let html = "";
 
-    // a. Uploaded documents list
+    // a. Uploaded documents list. Pooled across the household, which matters
+    //    for a leader who is also a parent on one of these trips — their
+    //    child's uploads appear here, each labelled with who sent it.
     html += `<div class="docs-section">
-      <div class="docs-section-label">YOUR UPLOADED DOCUMENTS</div>`;
+      <div class="docs-section-label">UPLOADED DOCUMENTS</div>`;
     if (docsError) {
       html += `<div class="docs-empty">Could not load uploaded documents: ${attrEsc(docsError)}</div>`;
     } else if (documents.length === 0) {
       html += `<div class="docs-empty">No documents uploaded yet.</div>`;
     } else {
+      html += householdNote(docsData);
       html += `<div class="docs-grid">${documents.map(renderDocumentCard).join("")}</div>`;
     }
     html += `</div>`;
@@ -3488,6 +3504,39 @@
     return window.__jotformHandlerPromise;
   }
 
+  // Who uploaded a document, as one short phrase. The list pools the whole
+  // household, so the viewer needs to tell their own uploads from a parent's
+  // (and staff need to know whether to chase the student or the parent).
+  function documentUploader(doc) {
+    const name = (doc.uploadedByName || "").trim();
+    const role = (doc.uploadedByRole || "").trim();
+    if (doc.uploadedByMe) return "you";
+    if (name && role && !doc.uploadedByStudent) return `${name} (${role})`;
+    if (name) return name;
+    if (doc.uploadedByStudent) return "the student";
+    return "";                                  // no name from HubSpot — say nothing
+  }
+
+  // One line naming everyone whose uploads are pooled into a list, or a
+  // warning when HubSpot couldn't be reached. Returns "" when there is
+  // nothing worth saying.
+  function householdNote(data, opts) {
+    const options = opts || {};
+    const people = Array.isArray(data && data.household && data.household.people)
+      ? data.household.people : [];
+    if (data && data.household && data.household.degraded) {
+      return `<div class="docs-shared-note docs-shared-note--warn">Parent records were unavailable &mdash; this list may be missing uploads made by a parent.</div>`;
+    }
+    const others = people.filter(p => p && !p.isSelf && p.name && (!options.staffView || !p.isAnchor));
+    if (!others.length) return "";
+    const names = others.map(p => (p.role && options.staffView ? `${p.name} (${p.role})` : p.name));
+    const list = names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+    const lead = options.staffView ? "Student uploads, plus " : "Includes documents uploaded by ";
+    return `<div class="docs-shared-note">${lead}${attrEsc(list)}.</div>`;
+  }
+
   function renderDocumentCard(doc) {
     // The backend returns null for fieldLabel when the upload field is generic
     // (e.g. "Additional file upload") AND no Document Name was typed, so we
@@ -3503,12 +3552,19 @@
         dateStr = d.toLocaleDateString("en-NZ", { year: "numeric", month: "short", day: "numeric" });
       }
     }
+    // Escape each piece, then join with the separator — never escape the
+    // assembled string, or the &middot; entity gets double-escaped.
+    const by = documentUploader(doc);
+    const metaParts = [];
+    if (by) metaParts.push(`Uploaded by ${attrEsc(by)}`);
+    if (dateStr) metaParts.push(by ? attrEsc(dateStr) : `Uploaded ${attrEsc(dateStr)}`);
+    const metaLine = metaParts.join(" &middot; ");
     return `
       <div class="docs-card${showHeading ? "" : " docs-card--no-heading"}">
         <div>
           ${showHeading ? `<h4>${attrEsc(heading)}</h4>` : ""}
           <div class="docs-filename">${attrEsc(filename)}</div>
-          ${dateStr ? `<div class="docs-date">Uploaded ${attrEsc(dateStr)}</div>` : ""}
+          ${metaLine ? `<div class="docs-date">${metaLine}</div>` : ""}
         </div>
         <a href="${attrEsc(doc.url)}" target="_blank" rel="noopener" class="docs-link">VIEW DOCUMENT</a>
       </div>
@@ -4106,10 +4162,14 @@
         body.innerHTML = `<div class="application-detail-empty">Could not load documents.<br><small style="color:#999; font-size:11px;">${attrEsc(detail)}</small></div>`;
         return;
       }
+      // The list pools the student's household, so say whose uploads it
+      // covers — an empty list ("nobody has uploaded") reads very differently
+      // from a narrow one ("we only looked at the student's own address").
       const documents = Array.isArray(data.documents) ? data.documents : [];
+      const note = householdNote(data, { staffView: true });
       body.innerHTML = documents.length
-        ? `<div class="docs-grid">${documents.map(renderDocumentCard).join("")}</div>`
-        : `<div class="docs-empty">No documents uploaded yet.</div>`;
+        ? note + `<div class="docs-grid">${documents.map(renderDocumentCard).join("")}</div>`
+        : note + `<div class="docs-empty">Nothing uploaded yet by this student or their parents.</div>`;
     } catch (err) {
       console.error("Student docs modal error:", err);
       body.innerHTML = `<div class="application-detail-empty">Could not load documents.<br><small style="color:#999; font-size:11px;">${attrEsc(err.message || String(err))}</small></div>`;

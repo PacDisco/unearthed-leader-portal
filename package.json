@@ -3,12 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Unearthed Education parent portal — Netlify-hosted static site + serverless functions backed by HubSpot + Jotform + Stripe.",
+  "description": "Unearthed Education parent portal \u2014 Netlify-hosted static site + serverless functions backed by HubSpot + Jotform + Stripe.",
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "nodemailer": "^6.9.16",
     "web-push": "^3.6.7"
+  },
+  "scripts": {
+    "test": "node test/uploaded-documents.test.mjs"
   }
 }
