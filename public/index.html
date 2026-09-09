@@ -2858,6 +2858,40 @@
     `;
   }
 
+  // ============================================================
+  // === EXTRA FLIGHTS / INSURANCE LINKS ===
+  // Three ad-hoc name + url pairs on the Portal record, rendered as extra
+  // buttons alongside the fixed insurance/visa ones. A pair only appears
+  // once its URL is filled; the name field supplies the button label.
+  //
+  // The property names carry a DOUBLE underscore because HubSpot turns "&"
+  // into "__" when generating an internal name from the label
+  // "Flights & Insurance 1 Name". They must also be listed in
+  // PORTAL_PROPERTIES (netlify/functions/portal.js) and in get-insurance.js,
+  // or the values never reach the browser.
+  // ============================================================
+  const EXTRA_INSURANCE_LINKS = [
+    { nameProp: "flights__insurance_1_name", urlProp: "flights__insurance_1_url" },
+    { nameProp: "flights__insurance_2_name", urlProp: "flights__insurance_2_url" },
+    { nameProp: "flights__insurance_3_name", urlProp: "flights__insurance_3_url" }
+  ];
+
+  // A URL safe to put in an href, or "" to skip the link entirely.
+  //
+  // Ops paste these into HubSpot by hand, so a bare host ("www.example.com
+  // /policy.pdf") is common and gets an https:// prefix rather than being
+  // treated as a relative path. Anything carrying some other scheme —
+  // javascript:, data: — is dropped, since a Portal record shouldn't be able
+  // to inject script into the page.
+  function externalUrl(raw) {
+    const v = String(raw == null ? "" : raw).trim();
+    if (!v) return "";
+    if (/^https?:\/\//i.test(v)) return v;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(v)) return "";
+    if (v.startsWith("/")) return "";
+    return `https://${v}`;
+  }
+
   async function loadInsurance() {
     const el = document.getElementById("insuranceContent");
     if (!el) return;
@@ -2868,13 +2902,29 @@
     let wording  = (portalData.insurance_policy_wording   || "").trim();
     let visa     = (portalData.visa_information           || "").trim();
 
-    if (!overview || !wording || !visa) {
+    // Same trip-then-global rule for the ad-hoc pairs. portal.js has already
+    // merged the trip record over the global one (and keeps each name+url
+    // pair together while doing it, so a trip-level link can't end up
+    // wearing the global record's label); this get-insurance read is the
+    // same safety net the three fixed links above use.
+    const extras = EXTRA_INSURANCE_LINKS.map(f => ({
+      name: String(portalData[f.nameProp] || "").trim(),
+      url:  String(portalData[f.urlProp]  || "").trim()
+    }));
+
+    if (!overview || !wording || !visa || extras.some(e => !e.url)) {
       try {
         const res = await apiFetch(`/.netlify/functions/get-insurance`);
         const data = await res.json();
         if (!overview && data.insurance_overview__faqs) overview = String(data.insurance_overview__faqs).trim();
         if (!wording  && data.insurance_policy_wording)    wording  = String(data.insurance_policy_wording).trim();
         if (!visa     && data.visa_information)             visa     = String(data.visa_information).trim();
+        EXTRA_INSURANCE_LINKS.forEach((f, i) => {
+          if (extras[i].url) return;                       // trip value wins
+          const url = String(data[f.urlProp] || "").trim();
+          if (!url) return;
+          extras[i] = { name: String(data[f.nameProp] || "").trim(), url };
+        });
       } catch (err) {
         // Swallow — we'll show TBC for whichever side is still empty.
       }
@@ -2890,6 +2940,14 @@
     if (visa) {
       links.push(`<a href="${visa}" target="_blank" class="flight-link">VISA INFORMATION</a>`);
     }
+    extras.forEach((e, i) => {
+      const href = externalUrl(e.url);
+      if (!href) return;
+      // An unnamed link still shows — a missing label is an ops oversight,
+      // and hiding the document would be the worse failure.
+      const label = (e.name || `Additional Information ${i + 1}`).toUpperCase();
+      links.push(`<a href="${attrEsc(href)}" target="_blank" rel="noopener" class="flight-link">${attrEsc(label)}</a>`);
+    });
 
     el.innerHTML = links.length
       ? `<div style="margin-top:8px;">${links.join("")}</div>`

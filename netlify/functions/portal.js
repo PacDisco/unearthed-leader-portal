@@ -302,6 +302,14 @@ export async function handler(event) {
       // Insurance + visas + documents
       "insurance_overview__faqs", "insurance_policy_wording",
       "visa_information",
+      // Extra ad-hoc links for the Flights, Insurance & Visas tab (paired
+      // name + url, 1..3). Rendered next to the fixed insurance/visa buttons
+      // only when the url is filled; the name becomes the button label.
+      // Note the DOUBLE underscore — HubSpot turns "&" into "__" when it
+      // generates an internal name from the label "Flights & Insurance 1".
+      "flights__insurance_1_name", "flights__insurance_1_url",
+      "flights__insurance_2_name", "flights__insurance_2_url",
+      "flights__insurance_3_name", "flights__insurance_3_url",
       "documents_upload_form",
       // Message board
       "message_board", "message_board_posted_at",
@@ -365,6 +373,7 @@ export async function handler(event) {
 
     const tripProps = portal.properties || {};
     const merged = mergeWithGlobalFallback(tripProps, globalProps);
+    keepPairsTogether(merged, tripProps, globalProps);
 
 
     // 4. Return data. `availableTripCount` lets the frontend decide
@@ -433,6 +442,32 @@ async function fetchPortalCards(portalIds, OBJECT, headers) {
 // key, the trip's value wins if it's "non-empty" (not null/undefined and not
 // an empty/whitespace-only string); otherwise the global record's value is
 // used. Returns a flat object suitable for ...spread into the response.
+// The global fallback above works one property at a time, which is wrong for
+// a name+url PAIR: a trip that overrides only the url would keep the global
+// record's name, so a button could point at this trip's document while
+// wearing another document's label. Resolve those pairs as a unit — if the
+// trip supplies the url, the trip supplies the name too (even when blank).
+//
+// Scoped deliberately to the Flights & Insurance pairs. The Manuals tab's
+// extra_field_name_N / extra_field_link_N pairs have always merged
+// per-property; that is pre-existing behaviour and is left alone.
+const PAIRED_FIELDS = [
+  ["flights__insurance_1_name", "flights__insurance_1_url"],
+  ["flights__insurance_2_name", "flights__insurance_2_url"],
+  ["flights__insurance_3_name", "flights__insurance_3_url"]
+];
+
+function keepPairsTogether(merged, tripProps, globalProps) {
+  const filled = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+  for (const [nameProp, urlProp] of PAIRED_FIELDS) {
+    const tripUrl = tripProps ? tripProps[urlProp] : undefined;
+    if (!filled(tripUrl)) continue;             // global pair (or nothing) stands
+    merged[urlProp] = tripUrl;
+    merged[nameProp] = filled(tripProps[nameProp]) ? tripProps[nameProp] : null;
+  }
+  return merged;
+}
+
 function mergeWithGlobalFallback(tripProps, globalProps) {
   const out = {};
   const allKeys = new Set([
