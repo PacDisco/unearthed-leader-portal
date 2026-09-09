@@ -3874,16 +3874,16 @@
           // Slugify the status so we can target it from CSS, e.g.
           // "Cleared" → "cleared", "Discovery Call" → "discovery-call".
           // Any unknown values fall back to the default tan styling.
-          const statusSlug = student.status
+          // No status set on the contact yet → show "Discovery" by default.
+          const statusValue = (student.status || "").trim() || "Discovery";
+          const statusSlug = statusValue
             .toLowerCase()
             .replace(/\s+/g, "-")
             .replace(/[^a-z0-9-]/g, "");
-          const statusHtml = student.status
-            ? `<div class="student-status">
+          const statusHtml = `<div class="student-status">
                  <span class="student-status-label">STATUS</span>
-                 <span class="student-status-value student-status-value--${attrEsc(statusSlug)}">${attrEsc(student.status)}</span>
-               </div>`
-            : "";
+                 <span class="student-status-value student-status-value--${attrEsc(statusSlug)}">${attrEsc(statusValue)}</span>
+               </div>`;
           const notesHtml = student.notes
             ? `<div class="student-notes">
                  <div class="student-notes-label">NOTES</div>

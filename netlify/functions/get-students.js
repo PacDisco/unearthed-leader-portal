@@ -121,7 +121,9 @@ export async function handler(event) {
           phone: student.properties.phone || "",
           // Teacher-tab-only fields. Sent on every response; the frontend
           // chooses whether to render them based on which tab called.
-          status: (student.properties.ue_student_status || "").trim(),
+          // Contacts with no ue_student_status yet haven't been reviewed —
+          // treat them as "Discovery" rather than rendering a blank chip.
+          status: (student.properties.ue_student_status || "").trim() || "Discovery",
           notes:  (student.properties.notes__c || "").trim(),
           totalPaid: paymentInfo.totalPaid,
           payments: paymentInfo.payments,

@@ -169,7 +169,8 @@ async function readContacts(ids, headers, isStudent) {
       name: `${p.firstname || ""} ${p.lastname || ""}`.trim(),
       email: p.email || "",
       phone: p.phone || "",
-      status: isStudent ? (p.ue_student_status || "").trim() : "",
+      // Unset ue_student_status defaults to "Discovery" (matches get-students).
+      status: isStudent ? ((p.ue_student_status || "").trim() || "Discovery") : "",
       parents: [],
     };
     if (isStudent) person.parents = await fetchParents(c.id, headers);
