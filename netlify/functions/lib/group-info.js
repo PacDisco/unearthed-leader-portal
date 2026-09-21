@@ -59,6 +59,15 @@ export const FIELD_MAP = {
   // Sheet 4 — Travel / passenger details (labels partly confirmed against the
   // trip-leader whitelist already in index.html).
   travel: {
+    // Middle names come from the passport-name question on the application —
+    // a Jotform full-name field whose `middle` sub-field is what the airline
+    // ticket has to match. `passportName` lists the candidate question labels;
+    // `middleName` covers forms that ask for the middle name on its own.
+    // If neither is on the form, the HubSpot fallback (person.middleName) wins.
+    passportName:    ["Name (as noted in your passport)", "Name as noted in your passport",
+                      "Full Name", "Name", "Student Name"],                          // confirmed on UE application form
+    middleName:      ["Middle Name", "Middle Names", "Middle Name(s)",
+                      "Middle name (as on passport)"],                               // VERIFY
     gender:          ["Gender", "Sex"],                                              // VERIFY
     dateOfBirth:     ["Date of Birth", "Birth Date", "DOB", "Date Of Birth"],        // VERIFY
     passportNumber:  ["Passport Number"],                                            // confirmed in index.html whitelist
@@ -133,6 +142,32 @@ function fieldValue(fields, candidateLabels) {
     }
   }
   return "";
+}
+
+// Look up a sub-field ("first" / "middle" / "last") of a Jotform full-name
+// answer. get-group-info.js attaches `parts` to those fields when the
+// submission carries them; anything else has no parts and is skipped.
+function namePart(fields, candidateLabels, part) {
+  if (!Array.isArray(fields) || !candidateLabels) return "";
+  const wanted = candidateLabels.map(norm);
+  for (const f of fields) {
+    if (!f || !f.parts) continue;
+    if (!wanted.includes(norm(f.label))) continue;
+    const v = String(f.parts[part] == null ? "" : f.parts[part]).trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+// Middle name(s) for the passenger sheet, in order of authority:
+//   1. the `middle` sub-field of the passport-name question (matches the ticket)
+//   2. a standalone "Middle Name" question on the form
+//   3. the HubSpot contact fallback resolved in get-group-info.js
+function middleName(person, fields) {
+  const t = FIELD_MAP.travel;
+  return namePart(fields, t.passportName, "middle")
+    || fieldValue(fields, t.middleName)
+    || String((person && person.middleName) || "").trim();
 }
 
 // Split a "First Last" style name; prefer HubSpot first/last when present.
@@ -237,6 +272,7 @@ function travelRow(index, person, fields, departureDate) {
   return {
     index,
     first,
+    middle: middleName(person, fields),
     last,
     gender: fieldValue(fields, t.gender),
     dateOfBirth: dob,
@@ -281,7 +317,8 @@ export const DIETARY_LEGEND = [
 //   appByEmail        — Map<lowercased email, fields[]>  (Jotform, flattened)
 //   departureDate     — optional ISO date for Age on Departure
 //
-// where person = { name, firstName?, lastName?, email, phone?, status?, parents? }
+// where person = { name, firstName?, middleName?, lastName?, email, phone?,
+//                  status?, parents? }
 //
 // output: { program, generatedAt, motivations, emergency, medical, travel,
 //           availableLabels }

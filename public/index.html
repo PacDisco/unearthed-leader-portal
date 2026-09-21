@@ -1679,6 +1679,7 @@
 </div>
 
 <script src="/group-pdf.js"></script>
+<script src="/group-csv.js"></script>
 <script>
   // Auth keys that must survive the app being fully closed (PWA reopened days
   // later, possibly offline). sessionStorage is wiped on close, so the login
@@ -3252,40 +3253,65 @@
     `;
   }
 
-  // Expedition Leader tab: the "DOWNLOAD GROUP INFORMATION (PDF)" card. The
-  // heavy lifting (fetch /get-group-info + render the 4-sheet PDF with pdfmake)
-  // lives in /group-pdf.js (window.GroupPdf). This just renders the card and
-  // wires the click to that module, passing the authed apiFetch + current trip.
+  // Expedition Leader tab: the "DOWNLOAD GROUP INFORMATION" card. The heavy
+  // lifting lives in two same-origin modules — /group-pdf.js (window.GroupPdf,
+  // renders the 4-sheet PDF with pdfmake) and /group-csv.js (window.GroupCsv,
+  // zips the same four sheets as CSVs). Both read the same /get-group-info
+  // response. This just renders the card and wires the clicks, passing the
+  // authed apiFetch + current trip.
   function renderGroupDownloadCard() {
     return `
       <div id="groupDownloadCard" style="margin:18px 0; padding:16px; border:1px solid #e0d9c9; border-radius:10px; background:#faf7ef;">
         <div style="font-size:13px; letter-spacing:1px; font-weight:700; margin-bottom:6px;">GROUP INFORMATION</div>
         <div style="font-size:12px; color:#666; margin-bottom:12px;">
           Motivations, emergency contacts, medical details and travel / passport details for the
-          whole team &mdash; Expedition Leader, School Leaders and Students &mdash; as a single PDF.
+          whole team &mdash; Expedition Leader, School Leaders and Students. Download as a single
+          printable PDF, or as spreadsheet-ready CSVs (one per sheet, in a .zip).
         </div>
-        <button id="groupDownloadBtn" class="student-expand-btn" type="button">DOWNLOAD GROUP INFORMATION (PDF)</button>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          <button id="groupDownloadBtn" class="student-expand-btn" type="button">DOWNLOAD GROUP INFORMATION (PDF)</button>
+          <button id="groupDownloadCsvBtn" class="student-expand-btn" type="button">DOWNLOAD AS CSV (ZIP)</button>
+        </div>
         <div id="groupDownloadStatus" style="color:#c0392b; font-size:12px; margin-top:8px;"></div>
       </div>`;
   }
 
   function wireGroupDownloadButton(container) {
     const btn = container.querySelector("#groupDownloadBtn");
+    const csvBtn = container.querySelector("#groupDownloadCsvBtn");
     const statusEl = container.querySelector("#groupDownloadStatus");
-    if (!btn) return;
-    btn.addEventListener("click", () => {
-      if (!window.GroupPdf || typeof window.GroupPdf.downloadGroupInfoPdf !== "function") {
-        if (statusEl) statusEl.textContent = "PDF module failed to load. Please refresh and try again.";
-        return;
-      }
-      const portalId = (portalData && portalData.hs_object_id) || "";
-      window.GroupPdf.downloadGroupInfoPdf({
-        portalId,
-        apiFetch,
-        button: btn,
-        setStatus: (msg) => { if (statusEl) statusEl.textContent = msg || ""; },
+    const setStatus = (msg) => { if (statusEl) statusEl.textContent = msg || ""; };
+    const portalIdNow = () => (portalData && portalData.hs_object_id) || "";
+
+    if (btn) {
+      btn.addEventListener("click", () => {
+        if (!window.GroupPdf || typeof window.GroupPdf.downloadGroupInfoPdf !== "function") {
+          setStatus("PDF module failed to load. Please refresh and try again.");
+          return;
+        }
+        window.GroupPdf.downloadGroupInfoPdf({
+          portalId: portalIdNow(),
+          apiFetch,
+          button: btn,
+          setStatus,
+        });
       });
-    });
+    }
+
+    if (csvBtn) {
+      csvBtn.addEventListener("click", () => {
+        if (!window.GroupCsv || typeof window.GroupCsv.downloadGroupInfoCsv !== "function") {
+          setStatus("CSV module failed to load. Please refresh and try again.");
+          return;
+        }
+        window.GroupCsv.downloadGroupInfoCsv({
+          portalId: portalIdNow(),
+          apiFetch,
+          button: csvBtn,
+          setStatus,
+        });
+      });
+    }
   }
 
   function loadSection(field) {

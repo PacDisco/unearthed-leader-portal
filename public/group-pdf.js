@@ -214,12 +214,14 @@
   }
 
   function travelSection(data) {
-    var cols = ["#", "First Name", "Last Name", "Gender", "Date of Birth",
+    // Middle Name sits between First and Last: airline tickets are issued
+    // against the full passport name, so it belongs in reading order.
+    var cols = ["#", "First Name", "Middle Name(s)", "Last Name", "Gender", "Date of Birth",
                 "Age on Departure", "Passport Number", "Country of Issue", "Expiry Date", "Dietary Requirement"];
-    var widths = [14, 64, 64, 30, 54, 36, 62, 58, 54, "*"];
+    var widths = [14, 58, 58, 58, 30, 52, 34, 60, 56, 52, "*"];
     var section = groupedSection("Passenger Details for Travel", cols, widths,
       data.travel && data.travel.groups, function (r) {
-        return [cell(r.index), cell(r.first), cell(r.last), cell(r.gender),
+        return [cell(r.index), cell(r.first), cell(r.middle), cell(r.last), cell(r.gender),
                 cell(fmtDate(r.dateOfBirth)), cell(r.ageOnDeparture),
                 cell(r.passportNumber), cell(r.passportCountry),
                 cell(fmtDate(r.passportExpiry)), cell(r.dietary)];

@@ -139,13 +139,50 @@ async function fetchProgram(portalId, headers) {
   }
 }
 
+// HubSpot contact properties that may carry middle names, tried in order.
+// `first_middle_names` ("First & Middle Names") holds first + middle together,
+// so the first name is stripped off it to leave the middle name(s); the
+// passport property is "Last, First Middle" and is parsed accordingly.
+// These are the fallback — the Jotform passport-name field wins when present.
+const MIDDLE_NAME_PROPS = ["first_middle_names", "name_on_passport_last_first_name_middle_name"]; // VERIFY
+
+// Derive the middle name(s) from whichever of MIDDLE_NAME_PROPS is populated.
+//   "First & Middle Names"  = "Jane Marie Louise"        -> "Marie Louise"
+//   "Name on passport ..."  = "Smith, Jane Marie Louise" -> "Marie Louise"
+// Returns "" when nothing usable is there.
+export function middleNameFromProps(props, firstName, lastName) {
+  const first = String(firstName || "").trim().toLowerCase();
+  const last = String(lastName || "").trim().toLowerCase();
+
+  for (const key of MIDDLE_NAME_PROPS) {
+    let raw = String((props && props[key]) || "").trim();
+    if (!raw) continue;
+
+    // "Last, First Middle" -> drop everything up to and including the comma.
+    if (raw.includes(",")) raw = raw.slice(raw.indexOf(",") + 1).trim();
+
+    let parts = raw.split(/\s+/).filter(Boolean);
+    // Strip a leading first name and a trailing surname if the property
+    // repeats them, so only the middle name(s) remain.
+    if (first && parts.length > 1 && parts[0].toLowerCase() === first) parts = parts.slice(1);
+    if (last && parts.length > 1 && parts[parts.length - 1].toLowerCase() === last) parts = parts.slice(0, -1);
+    // A single token equal to the first or last name is not a middle name.
+    if (parts.length === 1) {
+      const only = parts[0].toLowerCase();
+      if (only === first || only === last) continue;
+    }
+    if (parts.length) return parts.join(" ");
+  }
+  return "";
+}
+
 // Batch-read a bucket of contacts into the `person` shape group-info expects.
 // Students additionally carry ue_student_status (review status) and their
 // associated Parent contacts (emergency-contact fallback).
 async function readContacts(ids, headers, isStudent) {
   if (!ids || ids.length === 0) return [];
 
-  const properties = ["firstname", "lastname", "email", "phone"];
+  const properties = ["firstname", "lastname", "email", "phone", ...MIDDLE_NAME_PROPS];
   if (isStudent) properties.push("ue_student_status");
 
   const res = await fetch("https://api.hubapi.com/crm/v3/objects/contacts/batch/read", {
@@ -166,6 +203,9 @@ async function readContacts(ids, headers, isStudent) {
       id: c.id,
       firstName: p.firstname || "",
       lastName: p.lastname || "",
+      // CRM fallback only — the Jotform passport-name field takes precedence
+      // in lib/group-info.js, since that is what the ticket must match.
+      middleName: middleNameFromProps(p, p.firstname, p.lastname),
       name: `${p.firstname || ""} ${p.lastname || ""}`.trim(),
       email: p.email || "",
       phone: p.phone || "",
@@ -332,9 +372,34 @@ function extractFields(submission) {
     if (!label) continue;
     const value = formatAnswer(a);
     if (value == null || value === "") continue;
-    out.push({ qid: a.qid, order: parseInt(a.order, 10) || null, type: a.type || null, label, value });
+    const field = { qid: a.qid, order: parseInt(a.order, 10) || null, type: a.type || null, label, value };
+    // Full-name questions ("Name (as noted in your passport)") flatten to a
+    // single string above, which loses the middle name. Keep the sub-fields so
+    // the travel sheet can show first / middle / last separately.
+    const parts = nameParts(a);
+    if (parts) field.parts = parts;
+    out.push(field);
   }
   return out;
+}
+
+// Sub-fields of a Jotform full-name answer, when the answer carries them.
+// Matched on the shape of the value rather than the declared control type, so
+// it still works if the question is a custom/renamed name widget.
+export function nameParts(a) {
+  const v = a && a.answer;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const has = ["first", "middle", "last", "prefix", "suffix"].some(k => k in v);
+  if (!has) return null;
+  const str = (x) => String(x == null ? "" : x).trim();
+  const parts = {
+    prefix: str(v.prefix),
+    first: str(v.first),
+    middle: str(v.middle),
+    last: str(v.last),
+    suffix: str(v.suffix),
+  };
+  return (parts.first || parts.middle || parts.last) ? parts : null;
 }
 
 function formatAnswer(a) {
