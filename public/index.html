@@ -384,6 +384,34 @@
       #qrCard { display: none !important; }
     }
 
+    /* ROSTER SECTION HEADINGS (Expedition Leader tab)
+       When school leaders are listed above the students, each grid gets a
+       small caption so the two groups can't be confused. Matches the
+       .teacher-section-label treatment used on the Expedition Overview. */
+    .roster-section-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-top: 28px;
+      margin-bottom: 4px;
+    }
+
+    /* Staff variant of the student card. Same layout; the blue top rule and
+       role caption match .leader-card--school-leader on the Overview tab so
+       "school leader" reads the same colour everywhere in the portal.
+       Two classes deliberately — .student-card below sets `border-top` as a
+       shorthand, so a single-class rule here would lose to it on order. */
+    .student-card.student-card--staff { border-top-color: #aed1db; }
+
+    .student-card .student-card-role {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #5b7f9e;
+      margin-bottom: 6px;
+    }
+
     /* STUDENT CARDS */
     .student-grid {
       display: grid;
@@ -3412,8 +3440,11 @@
         //      global record. Configure via TRIP_LEADER_LINKS above.
         //   2. The trip_leader_information_content rich-text block from the
         //      Portal record — anything the school types into HubSpot.
-        //   3. The student list, with each card opening a Medical
-        //      Information modal (filtered subset of the application form).
+        //   3. The roster — school leaders ("Teacher" association) first,
+        //      then students. Both fill in the same application form, so
+        //      every card opens the same Medical Information modal
+        //      (filtered subset of the application form) and the same
+        //      per-person uploaded-documents modal.
         const linksHtml    = renderResourceLinkGrid(TRIP_LEADER_LINKS);
         const richTextHtml = portalData[field] || "";
         content.innerHTML  = linksHtml + richTextHtml + renderGroupDownloadCard();
@@ -3421,7 +3452,10 @@
         styleLinksAsButtons();
         wireGroupDownloadButton(content);
         injectFlightTicketsCard(content);
-        await loadStudentList(content, { expandable: true });
+        // includeTeachers: school leaders complete the same application form,
+        // so they render as their own roster grid above the students with the
+        // same Medical Information / View Documents actions.
+        await loadStudentList(content, { expandable: true, includeTeachers: true });
         return;
       }
 
@@ -3950,9 +3984,70 @@
     });
   }
 
+  // One school-leader card for the Expedition Leader tab roster.
+  //
+  // Deliberately the same .student-card shell as a student (plus a --staff
+  // modifier for the blue top rule) because a school leader fills in the
+  // SAME application form: the MEDICAL INFORMATION popup and the VIEW
+  // DOCUMENTS popup below are the identical handlers the student cards use,
+  // just passed the leader's email. Everything student-specific — parents /
+  // guardians, payment totals, the school's status + notes fields — is
+  // omitted because none of it exists on a staff contact.
+  //
+  // Email is hidden here for the same reason it's hidden on student cards on
+  // this tab: the Expedition Leader view is the medical/emergency view. Full
+  // contact details for school leaders live on the Expedition Overview tab.
+  function renderStaffRosterCard(teacher) {
+    const name = teacher.name || "Unknown";
+
+    const photoHtml = teacher.portraitUrl
+      ? `<img class="student-card-photo" src="${attrEsc(teacher.portraitUrl)}" alt="${attrEsc(name)}" decoding="async" onerror="console.warn('[staff-card] photo failed:', this.src); this.style.display='none';">`
+      : "";
+
+    const contactInfoHtml = teacher.phone
+      ? `<div class="contact-info"><a href="tel:${attrEsc(teacher.phone)}">${attrEsc(teacher.phone)}</a></div>`
+      : "";
+
+    const medicalBtn = `
+      <button class="student-expand-btn" type="button"
+              data-email="${attrEsc(teacher.email || "")}"
+              data-student-name="${attrEsc(name)}"
+              onclick="openApplicationModal(this.dataset.email, this.dataset.studentName, true)">
+        MEDICAL INFORMATION
+      </button>
+    `;
+
+    const docsBtn = teacher.email
+      ? `
+        <button class="student-expand-btn student-docs-btn" type="button"
+                data-email="${attrEsc(teacher.email)}"
+                data-student-name="${attrEsc(name)}"
+                onclick="openStudentDocsModal(this.dataset.email, this.dataset.studentName)">
+          VIEW DOCUMENTS
+        </button>
+      `
+      : "";
+
+    return `
+      <div class="student-card student-card--staff">
+        ${photoHtml}
+        <div class="student-card-role">SCHOOL LEADER</div>
+        <h3>${attrEsc(name)}</h3>
+        ${contactInfoHtml}
+        ${medicalBtn}
+        ${docsBtn}
+      </div>
+    `;
+  }
+
   async function loadStudentList(content, options = {}) {
     const expandable = !!options.expandable;
     const showAppModal = !!options.applicationModal;
+    // Expedition Leader tab only: school leaders (HubSpot association label
+    // "Teacher") complete the same application form as the students, so they
+    // get their own roster grid above the students with the same medical /
+    // documents actions on each card.
+    const includeTeachers = !!options.includeTeachers;
 
     const loader = document.createElement("div");
     loader.id = "studentLoader";
@@ -3967,15 +4062,46 @@
 
       document.getElementById("studentLoader")?.remove();
 
-      if (data.error || !data.students?.length) {
+      const students = Array.isArray(data.students) ? data.students : [];
+      const teachers = (includeTeachers && Array.isArray(data.teachers)) ? data.teachers : [];
+
+      if (data.error || (students.length === 0 && teachers.length === 0)) {
         content.insertAdjacentHTML("beforeend", "<p style='color:#999; font-size:13px; margin-top:20px;'>No students found.</p>");
+        return;
+      }
+
+      // School leaders first, in their own captioned grid. Only rendered on
+      // the tab that asked for them AND when the trip actually has any, so
+      // nothing changes on trips with no teacher associations.
+      if (teachers.length) {
+        const staffLabel = document.createElement("div");
+        staffLabel.className = "roster-section-label";
+        staffLabel.textContent = "SCHOOL LEADERS";
+        content.appendChild(staffLabel);
+
+        const staffGrid = document.createElement("div");
+        staffGrid.className = "student-grid";
+        teachers.forEach(teacher => {
+          staffGrid.innerHTML += renderStaffRosterCard(teacher);
+        });
+        content.appendChild(staffGrid);
+
+        // Caption the student grid too, so the two groups read as a pair.
+        const studentLabel = document.createElement("div");
+        studentLabel.className = "roster-section-label";
+        studentLabel.textContent = "STUDENTS";
+        content.appendChild(studentLabel);
+      }
+
+      if (students.length === 0) {
+        content.insertAdjacentHTML("beforeend", "<p style='color:#999; font-size:13px; margin-top:12px;'>No students found.</p>");
         return;
       }
 
       const grid = document.createElement("div");
       grid.className = "student-grid";
 
-      data.students.forEach(student => {
+      students.forEach(student => {
         const paymentsHtml = student.payments.length
           ? student.payments.map(p => {
               // Negative amounts are refunds — flag them so they read as a

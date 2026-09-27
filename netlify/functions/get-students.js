@@ -12,6 +12,7 @@
 
 import { authenticate, tokenFromEvent } from "./_shared/auth.js";
 import { assertPortalAccess } from "./_shared/portal-access.js";
+import { collectFileIds, resolveFileIds, resolvePhotoUrl } from "./_shared/hubspot-files.js";
 
 export async function handler(event) {
   try {
@@ -56,15 +57,25 @@ export async function handler(event) {
 
     const assocData = await assocRes.json();
 
-    // 2. Filter to only Student associations
-    const studentIds = (assocData.results || [])
+    // 2. Bucket the portal's contacts by association label.
+    //    Students drive the main roster; Teachers (school leaders) are
+    //    returned alongside them because they complete the SAME application
+    //    form, and the Expedition Leader tab shows their medical/passport
+    //    details next to the students'.
+    const assocRows = assocData.results || [];
+
+    const studentIds = assocRows
       .filter(r => r.associationTypes?.some(t => t.label === "Student"))
       .map(r => r.toObjectId);
 
-    if (studentIds.length === 0) {
+    const teacherIds = assocRows
+      .filter(r => r.associationTypes?.some(t => t.label === "Teacher"))
+      .map(r => r.toObjectId);
+
+    if (studentIds.length === 0 && teacherIds.length === 0) {
       return {
         statusCode: 200,
-        body: JSON.stringify({ students: [] })
+        body: JSON.stringify({ students: [], teachers: [] })
       };
     }
 
@@ -80,19 +91,21 @@ export async function handler(event) {
     //                            Salesforce-side suffix.)
     //    Both are read here regardless of which tab is calling, and the
     //    frontend decides whether to display them (Teachers tab only).
-    const studentsRes = await fetch(
-      "https://api.hubapi.com/crm/v3/objects/contacts/batch/read",
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          inputs: studentIds.map(id => ({ id: String(id) })),
-          properties: ["firstname", "lastname", "email", "phone", "ue_student_status", "notes__c"]
-        })
-      }
-    );
+    const studentsRes = studentIds.length
+      ? await fetch(
+          "https://api.hubapi.com/crm/v3/objects/contacts/batch/read",
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              inputs: studentIds.map(id => ({ id: String(id) })),
+              properties: ["firstname", "lastname", "email", "phone", "ue_student_status", "notes__c"]
+            })
+          }
+        )
+      : null;
 
-    if (!studentsRes.ok) {
+    if (studentsRes && !studentsRes.ok) {
       console.error("[get-students] student batch-read failed:", (await studentsRes.text().catch(() => "")).slice(0, 300));
       return {
         statusCode: 500,
@@ -100,7 +113,40 @@ export async function handler(event) {
       };
     }
 
-    const studentsData = await studentsRes.json();
+    const studentsData = studentsRes ? await studentsRes.json() : { results: [] };
+
+    // 3b. Batch-read the school leaders (association label "Teacher"). They
+    //     complete the same application form as students, so the Expedition
+    //     Leader tab renders them as roster cards with the same medical /
+    //     documents actions. `expedition_leader_photo` is their HubSpot
+    //     headshot — used as a fallback when they have no portrait on their
+    //     form submission.
+    const teachersData = teacherIds.length
+      ? await fetch(
+          "https://api.hubapi.com/crm/v3/objects/contacts/batch/read",
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              inputs: teacherIds.map(id => ({ id: String(id) })),
+              properties: ["firstname", "lastname", "email", "phone", "expedition_leader_photo"]
+            })
+          }
+        ).then(async (r) => {
+          if (!r.ok) {
+            // A failed leader read must not take the student roster down
+            // with it — log and carry on with an empty leader list.
+            console.warn("[get-students] teacher batch-read failed:", (await r.text().catch(() => "")).slice(0, 300));
+            return { results: [] };
+          }
+          return r.json();
+        }).catch(err => {
+          console.warn("[get-students] teacher batch-read threw:", err?.message || err);
+          return { results: [] };
+        })
+      : { results: [] };
+
+    const teacherRecords = teachersData.results || [];
 
     // 4. For each student, resolve parent contacts and deal-side payments
     //    in parallel. Also pull a single email→portrait map from the Jotform
@@ -159,9 +205,49 @@ export async function handler(event) {
     // Sort students alphabetically
     students.sort((a, b) => a.name.localeCompare(b.name));
 
+    // 5. Shape the school leaders. Same card fields as a student minus the
+    //    things that don't apply to staff (parents, deal payments, school
+    //    status/notes). Photo preference: the portrait they uploaded on the
+    //    application form, falling back to their HubSpot headshot so a leader
+    //    who hasn't submitted the form yet still shows a face.
+    const leaderPhotoMap = await resolveFileIds(
+      collectFileIds(teacherRecords, "expedition_leader_photo"),
+      headers
+    );
+
+    const teachers = teacherRecords.map(t => {
+      const email = t.properties.email || "";
+      const key = email.toLowerCase().trim();
+      const rawPortrait = key ? portraitsByEmail.get(key) : null;
+      const headshot = resolvePhotoUrl(t.properties.expedition_leader_photo, leaderPhotoMap);
+
+      // Jotform-hosted URLs (the form portrait, and any headshot stored as a
+      // Jotform link) go through /document-proxy and therefore need the
+      // caller's token appended — <img> can't send an Authorization header.
+      let portraitUrl = null;
+      if (rawPortrait) {
+        portraitUrl = `/document-proxy?url=${encodeURIComponent(rawPortrait)}${tokenSuffix}`;
+      } else if (headshot) {
+        portraitUrl = headshot.startsWith("/document-proxy?")
+          ? `${headshot}${tokenSuffix}`
+          : headshot;
+      }
+
+      return {
+        id: t.id,
+        name: `${t.properties.firstname || ""} ${t.properties.lastname || ""}`.trim(),
+        email,
+        phone: t.properties.phone || "",
+        role: "Teacher",
+        portraitUrl
+      };
+    });
+
+    teachers.sort((a, b) => a.name.localeCompare(b.name));
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ students })
+      body: JSON.stringify({ students, teachers })
     };
 
   } catch (err) {
