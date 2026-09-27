@@ -91,6 +91,96 @@ async function isLeaderOnPortal(contactId, portalId) {
   }
 }
 
+// Every association label `contactId` carries on `portalId`, lowercased.
+// Used to decide what a target person IS on the trip (Student / Teacher /
+// Parent / Trip Leader) without trusting anything the browser sent.
+async function labelsOnPortal(contactId, portalId) {
+  const out = new Set();
+  if (!contactId || !portalId) return out;
+  try {
+    const r = await fetch(
+      `https://api.hubapi.com/crm/v4/objects/${PORTAL_OBJECT}/${portalId}/associations/contacts`,
+      { headers: hsHeaders() }
+    );
+    if (!r.ok) return out;
+    const d = await r.json();
+    for (const row of d.results || []) {
+      if (String(row.toObjectId) !== String(contactId)) continue;
+      for (const t of row.associationTypes || []) {
+        const label = String(t?.label || "").trim().toLowerCase();
+        if (label) out.add(label);
+      }
+    }
+  } catch (_) { /* fail closed — caller treats an empty set as "no labels" */ }
+  return out;
+}
+
+// Portal ids where `email` is specifically an EXPEDITION LEADER ("Trip
+// Leader"). Narrower than leaderPortalIdsForEmail on purpose: teachers can
+// read their trip's roster but cannot edit it.
+export async function tripLeaderPortalIdsForEmail(email) {
+  try {
+    const cid = await contactIdForEmail(email);
+    if (!cid) return [];
+    const all = await allPortalIdsForContact(cid);
+    const checks = await Promise.all(
+      all.map(async pid => ((await hasLabelOnPortal(cid, pid, "trip leader")) ? pid : null))
+    );
+    return checks.filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function hasLabelOnPortal(contactId, portalId, wanted) {
+  const labels = await labelsOnPortal(contactId, portalId);
+  return labels.has(String(wanted).toLowerCase());
+}
+
+// WRITE authorization for the leader portal's roster editing.
+//
+// Read access (assertEmailAccess) is deliberately wider than write access:
+//   read  — self, admin, or ANY staff (Teacher or Trip Leader) on a shared trip
+//   write — admin, or an EXPEDITION LEADER ("Trip Leader") on a shared trip
+// A teacher who can see a student's medical answers therefore still cannot
+// change them.
+//
+// Returns { response } to return immediately when denied, or, when allowed,
+// { contactId, portalId, labels } — the resolved target contact, the trip the
+// permission came through, and that person's association labels on it, so the
+// caller can decide which contact properties are in scope (the school's
+// status/notes fields only make sense on a Student).
+export async function resolveRosterEditAccess(session, targetEmail) {
+  const want = String(targetEmail || "").toLowerCase().trim();
+  if (!want) return { response: deny("Missing email.") };
+
+  try {
+    const contactId = await contactIdForEmail(want);
+    if (!contactId) return { response: deny("That person could not be found.") };
+
+    const targetPortals = await allPortalIdsForContact(contactId);
+    if (targetPortals.length === 0) {
+      return { response: deny("That person isn't on any trip.") };
+    }
+
+    // Admins may edit anyone; the trip is only needed to read back labels.
+    if (isAdmin(session)) {
+      const portalId = targetPortals[0];
+      return { contactId, portalId, labels: await labelsOnPortal(contactId, portalId) };
+    }
+
+    const myPortals = await tripLeaderPortalIdsForEmail(session.email);
+    const portalId = myPortals.find(id => targetPortals.includes(id));
+    if (!portalId) {
+      return { response: deny("Only an expedition leader on this trip can change these details.") };
+    }
+
+    return { contactId, portalId, labels: await labelsOnPortal(contactId, portalId) };
+  } catch (_) {
+    return { response: deny("Could not verify your access to this person.") };
+  }
+}
+
 // Portal ids where `email` is staff (Teacher/Trip Leader).
 export async function leaderPortalIdsForEmail(email) {
   try {

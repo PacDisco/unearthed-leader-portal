@@ -188,7 +188,15 @@ export async function findSubmissionByEmail(email, formIdOverride) {
 // entirely (we only signal whether a value exists) so passport / health data
 // never crosses the wire. Non-editable types are flagged read-only.
 // ---------------------------------------------------------------------------
-export function buildClientFields(submission) {
+// `options.revealSensitive` — used ONLY by the expedition-leader editor. The
+// self-service editor withholds passport/medical values because the student is
+// assumed to know their own answers and the browser has no business holding
+// them. A leader is editing someone ELSE's answers and already sees them in
+// the Medical Information modal, so withholding here would mean they could
+// only overwrite blind. Authorization for that view is enforced by
+// resolveRosterEditAccess before this is ever called.
+export function buildClientFields(submission, options = {}) {
+  const revealSensitive = !!options.revealSensitive;
   const answers = submission?.answers || {};
   const out = [];
 
@@ -210,6 +218,8 @@ export function buildClientFields(submission) {
     }
 
     const sensitive = isSensitiveLabel(label);
+    // Withhold the value only when we're NOT in the leader editor.
+    const withhold = sensitive && !revealSensitive;
 
     // Editable composite (address): expose per-subfield values so the UI can
     // render one input per part. Values are still withheld if the field is
@@ -219,7 +229,7 @@ export function buildClientFields(submission) {
       const subfields = ADDRESS_SUBFIELDS.map(sf => ({
         key: `${a.qid}_${sf.key}`,        // composite key sent back on update
         label: sf.label,
-        value: sensitive ? "" : (v[sf.key] != null ? String(v[sf.key]) : ""),
+        value: withhold ? "" : (v[sf.key] != null ? String(v[sf.key]) : ""),
       }));
       out.push({
         qid: a.qid,
@@ -245,8 +255,9 @@ export function buildClientFields(submission) {
       sensitive,
       editable,
       hasValue,
-      // CRITICAL: never expose the real value of a sensitive field.
-      value: sensitive ? null : (hasValue ? displayValue : ""),
+      // CRITICAL: never expose the real value of a sensitive field — unless
+      // this is the leader editor, which is authorized to see it.
+      value: withhold ? null : (hasValue ? displayValue : ""),
     });
   }
   return out;
@@ -256,7 +267,13 @@ export function buildClientFields(submission) {
 // honouring editability and the sensitive-blank rule (blank sensitive field =
 // leave existing value untouched). `submission` is the current raw submission
 // (used to confirm field type/label). Returns { fields, skipped }.
-export function buildUpdatePayload(submission, changes) {
+// `options.allowSensitiveBlank` — the self-service editor never receives a
+// sensitive field's current value, so a blank there means "user didn't retype
+// it" and must be preserved. The leader editor DOES show the current value and
+// only sends fields that actually changed, so a blank there is a deliberate
+// clear and is written through.
+export function buildUpdatePayload(submission, changes, options = {}) {
+  const allowSensitiveBlank = !!options.allowSensitiveBlank;
   const answers = submission?.answers || {};
   const fields = {};
   const skipped = [];
@@ -296,7 +313,7 @@ export function buildUpdatePayload(submission, changes) {
     if (!isEditableType(type)) { skipped.push({ qid: key, reason: `read-only type ${type}` }); continue; }
 
     // Sensitive + blank => preserve existing value (don't write).
-    if (isSensitiveLabel(label) && value.trim() === "") {
+    if (!allowSensitiveBlank && isSensitiveLabel(label) && value.trim() === "") {
       skipped.push({ qid: key, reason: "sensitive field left blank — preserved" });
       continue;
     }
@@ -305,6 +322,31 @@ export function buildUpdatePayload(submission, changes) {
   }
 
   return { fields, skipped };
+}
+
+// Turns the write payload from buildUpdatePayload back into something a human
+// can read — used for the audit note written to HubSpot after a leader edits
+// someone's application. Composite address keys ("12_city") are resolved to
+// "<field label> — City".
+export function describeFields(submission, fields) {
+  const answers = submission?.answers || {};
+  const subLabel = Object.fromEntries(ADDRESS_SUBFIELDS.map(s => [s.key, s.label]));
+
+  return Object.entries(fields || {}).map(([key, value]) => {
+    const us = key.indexOf("_");
+    if (us > 0 && answers[key.slice(0, us)]) {
+      const base = answers[key.slice(0, us)];
+      const sub = key.slice(us + 1);
+      const baseLabel = (base.text || base.name || `Field ${key.slice(0, us)}`).trim();
+      return { key, label: `${baseLabel} — ${subLabel[sub] || sub}`, value: String(value) };
+    }
+    const a = answers[key];
+    return {
+      key,
+      label: (a && (a.text || a.name) || `Field ${key}`).trim(),
+      value: String(value)
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

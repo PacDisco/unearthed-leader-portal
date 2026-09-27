@@ -738,6 +738,128 @@
 
     .app-modal-close:hover { color: #2d6b74; }
 
+    /* Leader editing — header action + the edit form inside the modal body. */
+    .app-modal-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .app-modal-edit {
+      background: transparent;
+      border: 1px solid #2d6b74;
+      color: #2d6b74;
+      font-family: inherit;
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      padding: 7px 14px;
+      cursor: pointer;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .app-modal-edit:hover { background: #2d6b74; color: #fff; }
+    .app-modal-edit[hidden] { display: none; }
+
+    .person-edit-section {
+      margin: 0 0 22px;
+    }
+
+    .person-edit-section-label {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e2decf;
+      margin-bottom: 14px;
+    }
+
+    .person-edit-field { margin-bottom: 14px; }
+
+    .person-edit-field label {
+      display: block;
+      font-size: 12px;
+      color: #6b6b6b;
+      margin-bottom: 5px;
+      line-height: 1.4;
+    }
+
+    .person-edit-field input,
+    .person-edit-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 14px;
+      color: #2b2b2b;
+      background: #fff;
+      border: 1px solid #d8d3c2;
+      padding: 9px 11px;
+    }
+
+    .person-edit-field textarea { min-height: 84px; resize: vertical; }
+
+    .person-edit-field input:focus,
+    .person-edit-field textarea:focus { outline: none; border-color: #59a1aa; }
+
+    /* A field Jotform stores as a structured type (dates, uploads, name,
+       email). Shown so the leader can see it, but not writable — a flat
+       write would corrupt the stored shape. */
+    .person-edit-field.is-readonly .person-edit-readonly-value {
+      font-size: 14px;
+      color: #8a8a8a;
+      background: #f3f1e9;
+      border: 1px solid #e2decf;
+      padding: 9px 11px;
+      word-break: break-word;
+    }
+
+    .person-edit-readonly-hint {
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: #b0a99a;
+      margin-top: 4px;
+    }
+
+    .app-modal-footer {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      background: #fff;
+      border-top: 1px solid #e2decf;
+      padding: 14px 24px;
+    }
+
+    .app-modal-footer[hidden] { display: none; }
+
+    .person-edit-btn {
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      padding: 11px 20px;
+      cursor: pointer;
+      border: 1px solid #2d6b74;
+      background: #2d6b74;
+      color: #fff;
+    }
+
+    .person-edit-btn--secondary { background: transparent; color: #2d6b74; }
+    .person-edit-btn:disabled { opacity: 0.55; cursor: default; }
+
+    .person-edit-status {
+      font-size: 12px;
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border-left: 3px solid #59a1aa;
+      background: #f3f1e9;
+      color: #4a4a4a;
+    }
+
+    .person-edit-status.is-error { border-left-color: #c0392b; color: #9a3a2a; }
+
     .app-modal-body {
       padding: 18px 24px 24px;
       overflow-y: auto;
@@ -1698,11 +1820,20 @@
         <h2 id="appModalTitle">APPLICATION INFORMATION</h2>
         <span id="appModalSubject" class="app-modal-subject"></span>
       </div>
-      <button class="app-modal-close" type="button" onclick="closeApplicationModal()" aria-label="Close">&times;</button>
+      <div class="app-modal-actions">
+        <!-- Revealed only for an expedition leader / admin viewing the
+             Expedition Leader tab. The server enforces the same rule, so
+             un-hiding this by hand achieves nothing. -->
+        <button id="appModalEditBtn" class="app-modal-edit" type="button" hidden onclick="startPersonEdit()">EDIT</button>
+        <button class="app-modal-close" type="button" onclick="closeApplicationModal()" aria-label="Close">&times;</button>
+      </div>
     </div>
     <div id="appModalBody" class="app-modal-body">
       <div class="application-detail-empty">LOADING…</div>
     </div>
+    <!-- Edit actions live OUTSIDE the scrolling body so they stay reachable
+         on a long application form without overlapping the last field. -->
+    <div id="appModalFooter" class="app-modal-footer" hidden></div>
   </div>
 </div>
 
@@ -2756,7 +2887,14 @@
     });
   }
 
+  // The section currently rendered into #content. Tracked here because the
+  // tiles carry their target in an inline onclick rather than a data
+  // attribute, and the leader editor needs to re-render the open roster
+  // after a save.
+  let __activeSection = null;
+
   function setActiveTile(field) {
+    __activeSection = field;
     const tiles = document.querySelectorAll(".tile");
     tiles.forEach(tile => tile.classList.remove("active"));
     const clicked = [...tiles].find(t => t.getAttribute("onclick")?.includes(field));
@@ -4438,12 +4576,41 @@
     }
   }
 
+  // ----- Expedition-leader editing -----
+  // Who the modal is currently showing, so the EDIT action and the save know
+  // which person they're acting on without re-plumbing it through every call.
+  let __modalPerson = null;
+
+  // May the current viewer change roster details? Expedition leaders on this
+  // trip, and admins viewing through /admin.html. Teachers are read-only.
+  //
+  // This is a UI gate only — it decides whether a button is drawn. Every
+  // request is authorized again server-side (resolveRosterEditAccess), so
+  // flipping this in the console gets you a 403, not an edit.
+  function canEditRoster() {
+    const allowed = window.__leaderTilesAllowed || {};
+    return !!(adminViewing || allowed.tripLeader);
+  }
+
+  function setModalEditButton(visible) {
+    const btn = document.getElementById("appModalEditBtn");
+    if (!btn) return;
+    btn.hidden = !visible;
+    btn.textContent = "EDIT";
+  }
+
   async function openApplicationModal(email, name, tripLeaderOnly) {
     const modal = document.getElementById("appModal");
     const subject = document.getElementById("appModalSubject");
     const body = document.getElementById("appModalBody");
     const titleEl = document.getElementById("appModalTitle");
     if (!modal || !body) return;
+
+    __modalPerson = { email: email || "", name: name || "", tripLeaderOnly: !!tripLeaderOnly };
+    hideEditFooter();
+    // Editing is offered only from the Expedition Leader tab, which is the
+    // view this was asked for — the Teacher tab stays read-only.
+    setModalEditButton(!!tripLeaderOnly && !!email && canEditRoster());
 
     if (titleEl) titleEl.textContent = tripLeaderOnly ? "MEDICAL INFORMATION" : "APPLICATION INFORMATION";
     if (subject) subject.textContent = name || "";
@@ -4485,6 +4652,267 @@
     const modal = document.getElementById("appModal");
     if (modal) modal.hidden = true;
     document.body.style.overflow = "";
+    __modalPerson = null;
+    __editSnapshot = null;
+    setModalEditButton(false);
+    hideEditFooter();
+  }
+
+  // ----- Leader edit form -----------------------------------------------
+  // The values the form was loaded with, so SAVE sends only what actually
+  // changed. Posting every field would rewrite untouched answers on the
+  // Jotform submission and bury the real change in the audit note.
+  let __editSnapshot = null;
+
+  // Jotform types the backend accepts a flat write for. Anything else (dates,
+  // file uploads, name, email) is shown read-only; the backend independently
+  // refuses to write them, so this list is for the UI's benefit only.
+  async function startPersonEdit() {
+    if (!__modalPerson || !__modalPerson.email) return;
+    const body = document.getElementById("appModalBody");
+    const titleEl = document.getElementById("appModalTitle");
+    if (!body) return;
+
+    setModalEditButton(false);
+    if (titleEl) titleEl.textContent = "EDIT DETAILS";
+    body.innerHTML = `<div class="application-detail-empty">LOADING FORM…</div>`;
+
+    try {
+      const res = await apiFetch(
+        `/.netlify/functions/get-person-form?email=${encodeURIComponent(__modalPerson.email)}`
+      );
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        const detail = (data && data.error) ? data.error : `HTTP ${res.status}`;
+        body.innerHTML = `<div class="application-detail-empty">Could not open the editor.<br><small style="color:#999; font-size:11px;">${attrEsc(detail)}</small></div>`;
+        showEditFooter({ saveDisabled: true });
+        return;
+      }
+
+      body.innerHTML = renderPersonEditForm(data);
+      __editSnapshot = snapshotEditValues();
+      showEditFooter();
+    } catch (err) {
+      console.error("Person edit load error:", err);
+      body.innerHTML = `<div class="application-detail-empty">Could not open the editor.<br><small style="color:#999; font-size:11px;">${attrEsc(err.message || String(err))}</small></div>`;
+      showEditFooter({ saveDisabled: true });
+    }
+  }
+
+  function renderPersonEditForm(data) {
+    const fields = Array.isArray(data.fields) ? data.fields : [];
+    const contact = data.contact || {};
+    const editableContact = Array.isArray(data.editableContactFields) ? data.editableContactFields : [];
+
+    // 1. Contact details held in HubSpot (not on the form). Phone for
+    //    everyone; the school's status + notes only for students.
+    const contactRows = [];
+    if (editableContact.includes("phone")) {
+      contactRows.push(textRow({ key: "phone", scope: "contact", label: "Phone", value: contact.phone || "" }));
+    }
+    if (editableContact.includes("ue_student_status")) {
+      contactRows.push(textRow({ key: "ue_student_status", scope: "contact", label: "Student status", value: contact.ue_student_status || "" }));
+    }
+    if (editableContact.includes("notes__c")) {
+      contactRows.push(textRow({ key: "notes__c", scope: "contact", label: "Notes", value: contact.notes__c || "", multiline: true }));
+    }
+
+    const contactSection = contactRows.length
+      ? `<div class="person-edit-section">
+           <div class="person-edit-section-label">CONTACT DETAILS</div>
+           ${contactRows.join("")}
+         </div>`
+      : "";
+
+    // 2. The application form itself — every field, including ones left
+    //    blank, so a leader can fill a gap as well as correct a mistake.
+    let applicationSection;
+    if (!data.found) {
+      applicationSection = `<div class="person-edit-section">
+          <div class="person-edit-section-label">APPLICATION FORM</div>
+          <div class="application-detail-empty">No application submission found for this person, so there are no form answers to edit.</div>
+        </div>`;
+    } else {
+      const rows = fields.map(f => {
+        if (f.composite && Array.isArray(f.subfields)) {
+          const subs = f.subfields.map(sf => textRow({
+            key: sf.key, scope: "application", label: `${f.label} — ${sf.label}`, value: sf.value || ""
+          })).join("");
+          return subs;
+        }
+        if (!f.editable) {
+          return `<div class="person-edit-field is-readonly">
+              <label>${attrEsc(f.label)}</label>
+              <div class="person-edit-readonly-value">${attrEsc(f.value || "—")}</div>
+              <div class="person-edit-readonly-hint">READ-ONLY IN THE PORTAL</div>
+            </div>`;
+        }
+        return textRow({
+          key: f.qid,
+          scope: "application",
+          label: f.label,
+          value: f.value == null ? "" : String(f.value),
+          multiline: f.type === "control_textarea",
+        });
+      }).join("");
+
+      applicationSection = `<div class="person-edit-section">
+          <div class="person-edit-section-label">APPLICATION FORM</div>
+          ${rows}
+        </div>`;
+    }
+
+    const intro = `<div class="person-edit-status" id="personEditStatus">
+        Changes are written back to the application form and this person's contact record, and logged against their record.
+      </div>`;
+
+    return intro + contactSection + applicationSection;
+  }
+
+  function textRow({ key, scope, label, value, multiline }) {
+    const id = `pe_${scope}_${String(key).replace(/[^a-zA-Z0-9_]/g, "")}`;
+    const common = `id="${id}" data-scope="${attrEsc(scope)}" data-key="${attrEsc(String(key))}"`;
+    const control = multiline
+      ? `<textarea ${common}>${attrEsc(value)}</textarea>`
+      : `<input type="text" ${common} value="${attrEsc(value)}">`;
+    return `<div class="person-edit-field">
+        <label for="${id}">${attrEsc(label)}</label>
+        ${control}
+      </div>`;
+  }
+
+  // Paints the modal's footer bar and wires its buttons. Called separately
+  // from the form body because the footer lives outside the scrolling area.
+  function showEditFooter({ saveDisabled } = {}) {
+    const footer = document.getElementById("appModalFooter");
+    if (!footer) return;
+    footer.innerHTML = `
+        <button class="person-edit-btn" type="button" id="personEditSave"${saveDisabled ? " disabled" : ""}>SAVE CHANGES</button>
+        <button class="person-edit-btn person-edit-btn--secondary" type="button" id="personEditCancel">CANCEL</button>`;
+    footer.hidden = false;
+    document.getElementById("personEditSave")?.addEventListener("click", savePersonEdit);
+    document.getElementById("personEditCancel")?.addEventListener("click", cancelPersonEdit);
+  }
+
+  function hideEditFooter() {
+    const footer = document.getElementById("appModalFooter");
+    if (!footer) return;
+    footer.innerHTML = "";
+    footer.hidden = true;
+  }
+
+  function editInputs() {
+    return Array.from(document.querySelectorAll("#appModalBody [data-key][data-scope]"));
+  }
+
+  function snapshotEditValues() {
+    const snap = {};
+    editInputs().forEach(el => { snap[`${el.dataset.scope}:${el.dataset.key}`] = el.value; });
+    return snap;
+  }
+
+  // Only the fields whose value differs from what we loaded. A field cleared
+  // to blank IS a change and is sent — the leader can see what they're
+  // clearing, unlike the student's own editor where a blank means "untouched".
+  function collectEditChanges() {
+    const application = {};
+    const contact = {};
+    editInputs().forEach(el => {
+      const id = `${el.dataset.scope}:${el.dataset.key}`;
+      const before = __editSnapshot ? (__editSnapshot[id] ?? "") : "";
+      if (el.value === before) return;
+      if (el.dataset.scope === "contact") contact[el.dataset.key] = el.value;
+      else application[el.dataset.key] = el.value;
+    });
+    return { application, contact };
+  }
+
+  function setEditStatus(message, isError) {
+    const el = document.getElementById("personEditStatus");
+    if (!el) return;
+    el.textContent = message;
+    el.classList.toggle("is-error", !!isError);
+  }
+
+  function cancelPersonEdit() {
+    if (!__modalPerson) { closeApplicationModal(); return; }
+    const { email, name, tripLeaderOnly } = __modalPerson;
+    __editSnapshot = null;
+    openApplicationModal(email, name, tripLeaderOnly);
+  }
+
+  async function savePersonEdit() {
+    if (!__modalPerson || !__modalPerson.email) return;
+    if (isOffline()) {
+      setEditStatus("You're offline — connect to the internet before saving.", true);
+      return;
+    }
+
+    const { application, contact } = collectEditChanges();
+    if (Object.keys(application).length === 0 && Object.keys(contact).length === 0) {
+      setEditStatus("Nothing has changed yet.", false);
+      return;
+    }
+
+    const saveBtn = document.getElementById("personEditSave");
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "SAVING…"; }
+    setEditStatus("Saving…", false);
+
+    try {
+      const res = await apiFetch("/.netlify/functions/update-person", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: __modalPerson.email,
+          name: __modalPerson.name,
+          application,
+          contact,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        const detail = (data && data.error) ? data.error : `HTTP ${res.status}`;
+        setEditStatus(`Could not save: ${detail}`, true);
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "SAVE CHANGES"; }
+        return;
+      }
+
+      // Anything the server declined to write is surfaced rather than left to
+      // look like a clean save.
+      const notes = [];
+      if (data.updatedCount) notes.push(`${data.updatedCount} field${data.updatedCount === 1 ? "" : "s"} updated.`);
+      (data.warnings || []).forEach(w => notes.push(w));
+      (data.skipped || []).forEach(s => notes.push(`"${s.field}" not saved — ${s.reason}.`));
+
+      // Refresh the roster behind the modal so a changed phone / status shows
+      // on the card, then drop back to the read-only view.
+      refreshCurrentRoster();
+      const { email, name, tripLeaderOnly } = __modalPerson;
+      __editSnapshot = null;
+      await openApplicationModal(email, name, tripLeaderOnly);
+      if (notes.length) {
+        const bodyEl = document.getElementById("appModalBody");
+        if (bodyEl) {
+          bodyEl.insertAdjacentHTML("afterbegin",
+            `<div class="person-edit-status">${attrEsc(notes.join(" "))}</div>`);
+        }
+      }
+    } catch (err) {
+      console.error("Person edit save error:", err);
+      setEditStatus(`Could not save: ${err.message || String(err)}`, true);
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "SAVE CHANGES"; }
+    }
+  }
+
+  // Re-render whichever roster tab is open so edited values appear on the
+  // cards. Silent: the modal is still in front of it.
+  function refreshCurrentRoster() {
+    const field = __activeSection;
+    if (field === "trip_leader_information_content" || field === "teacher_information_content") {
+      try { loadSection(field); } catch (_) { /* non-fatal — the card just shows stale values */ }
+    }
   }
 
   // ESC closes the modal

@@ -13,6 +13,7 @@
 import { authenticate, tokenFromEvent } from "./_shared/auth.js";
 import { assertPortalAccess } from "./_shared/portal-access.js";
 import { collectFileIds, resolveFileIds, resolvePhotoUrl } from "./_shared/hubspot-files.js";
+import { APPLICATION_FORM_IDS } from "./_shared/application-forms.js";
 
 export async function handler(event) {
   try {
@@ -388,9 +389,7 @@ async function loadPortraitsByEmail() {
   const empty = new Map();
   if (!process.env.JOTFORM_API_KEY) return empty;
 
-  const formIds = (process.env.JOTFORM_APPLICATION_FORM_ID
-    || "251396787451873,253477140703050,260388618557066,250747665126866")
-    .split(",").map(s => s.trim()).filter(Boolean);
+  const formIds = APPLICATION_FORM_IDS;
   if (formIds.length === 0) return empty;
 
   const apiKey = process.env.JOTFORM_API_KEY;

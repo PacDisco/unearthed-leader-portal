@@ -19,10 +19,9 @@
 
 import { authenticate } from "./_shared/auth.js";
 import { assertEmailAccess } from "./_shared/portal-access.js";
-
-const DEFAULT_FORM_IDS = (process.env.JOTFORM_APPLICATION_FORM_ID
-  || "251396787451873,253477140703050,260388618557066,250747665126866")
-  .split(",").map(s => s.trim()).filter(Boolean);
+// Shared with get-person-form.js / update-person.js so the submission a leader
+// EDITS is the same one this endpoint DISPLAYS.
+import { APPLICATION_FORM_IDS as DEFAULT_FORM_IDS } from "./_shared/application-forms.js";
 
 export async function handler(event) {
   try {
