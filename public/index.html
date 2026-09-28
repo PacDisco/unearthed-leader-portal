@@ -4894,6 +4894,11 @@
   // verified is worse than one that's obviously wrong — it would only surface
   // at check-in.
   let __passportState = null;
+  // Set before re-opening the modal after an apply. The cached read is keyed
+  // on the PHOTO, so it would hand back verdicts computed against the form
+  // values we just corrected — right photo, stale comparison. Forcing the
+  // read once after a write is what keeps the panel honest.
+  let __forcePassportRead = false;
 
   async function renderPassportPanel(container, person) {
     if (!container || !person || !person.email) return;
@@ -4906,10 +4911,12 @@
     container.prepend(panel);
 
     try {
+      const force = __forcePassportRead;
+      __forcePassportRead = false;
       const res = await apiFetch("/.netlify/functions/read-passport", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: person.email }),
+        body: JSON.stringify({ email: person.email, force }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -4997,6 +5004,10 @@
 
     const rows = passportRows(state, person);
     const problems = state.verified ? [] : rows.filter(r => verdictNeedsLook(r.verdict));
+    // Rows we actually hold a passport value for. A row can be flagged
+    // without being appliable — on a cached view we know it differs but not
+    // what it should be — so "apply all" counts these, not the problems.
+    const applicable = state.verified ? [] : rows.filter(r => r.canApply);
 
     panel.className = "passport-panel"
       + (state.verified ? " passport-panel--checked" : (problems.length ? " passport-panel--mismatch" : ""));
@@ -5034,6 +5045,7 @@
       ${renderPassportTable(rows, state)}
       ${message ? `<div class="passport-panel-message">${attrEsc(message)}</div>` : ""}
       <div class="passport-panel-actions">
+        ${applicable.length > 1 ? `<button class="passport-btn" type="button" id="passportApplyAllBtn">USE ALL ${applicable.length} FROM PASSPORT</button>` : ""}
         <button class="passport-btn passport-btn--secondary" type="button" id="passportRereadBtn">RE-READ PASSPORT</button>
       </div>
       ${renderPassportCheckbox(state)}
@@ -5113,6 +5125,7 @@
 
   function wirePassportPanel() {
     document.getElementById("passportRereadBtn")?.addEventListener("click", rereadPassport);
+    document.getElementById("passportApplyAllBtn")?.addEventListener("click", (e) => applyPassportField("all", e.currentTarget));
     document.getElementById("passportVerifiedBox")?.addEventListener("change", togglePassportVerified);
     document.querySelectorAll("#passportPanel [data-apply]").forEach(btn => {
       btn.addEventListener("click", () => applyPassportField(btn.dataset.apply, btn));
@@ -5169,9 +5182,73 @@
     expiry: f => /expiry|expiration/i.test(f.label || ""),
   };
 
-  // One click to put what the passport says onto the record. Each field knows
-  // where it lives: the name is on both the contact and the form, the number
-  // and the dates are on the form alone.
+  // Builds the write for one field. Shared by the per-row buttons and the
+  // apply-all button so there is exactly one place that knows where each
+  // value lives: the name is on both the contact and the form, the number and
+  // the dates are on the form alone.
+  //
+  // Returns null when there's nothing to write (no value read, or the form has
+  // no such question), with `reason` saying which.
+  function buildPassportApply(kind, fields, state) {
+    const application = {};
+    const contact = {};
+
+    if (kind === "name") {
+      const first = state.passportFirst || "";
+      const last = state.passportLast || "";
+      if (!first && !last) return { skip: "there's no name from the passport to apply" };
+
+      const given = first.split(/\s+/).filter(Boolean);
+      // The contact holds first + last only.
+      contact.firstname = given[0] || "";
+      contact.lastname = last;
+
+      const wanted = PASSPORT_NAME_LABELS.map(normaliseLabel);
+      const nameField = fields.find(f =>
+        f.composite && f.type === "control_fullname" && wanted.includes(normaliseLabel(f.label))
+      );
+      if (nameField) {
+        application[`${nameField.qid}_first`] = given[0] || "";
+        if (nameField.subfields?.some(sf => sf.key === `${nameField.qid}_middle`)) {
+          // Cleared when the passport has no second given name, so the record
+          // can't keep a middle name the document doesn't have.
+          application[`${nameField.qid}_middle`] = given.slice(1).join(" ");
+        }
+        application[`${nameField.qid}_last`] = last;
+      }
+      return { application, contact, formQuestionMissing: !nameField };
+    }
+
+    const value = {
+      number: state.passportNumber,
+      dob: state.passportDob,
+      expiry: state.passportExpiry,
+    }[kind];
+    if (!value) return { skip: `there's nothing from the passport to apply for the ${kind}` };
+
+    const field = fields.find(f => f.editable && PASSPORT_FIELD_MATCHERS[kind]?.(f));
+    if (!field) {
+      const what = kind === "number" ? "passport-number" : kind === "dob" ? "date-of-birth" : "expiry-date";
+      return { skip: `the application form has no ${what} question` };
+    }
+
+    if (field.composite) {
+      // A date question: written day / month / year, never as one string.
+      const [y, m, d] = String(value).split("-");
+      if (!y || !m || !d) return { skip: `that ${kind} couldn't be written to the form` };
+      application[`${field.qid}_day`] = String(Number(d));
+      application[`${field.qid}_month`] = String(Number(m));
+      application[`${field.qid}_year`] = y;
+    } else {
+      application[field.qid] = value;
+    }
+    return { application, contact };
+  }
+
+  // One click to put what the passport says onto the record. `kind` is one of
+  // name / number / dob / expiry, or "all" for every row that has a value to
+  // apply — which goes as a SINGLE request, so it's one write and one audit
+  // note rather than four of each.
   async function applyPassportField(kind, btn) {
     if (!__modalPerson?.email || !__passportState) return;
     const original = btn ? btn.textContent : "";
@@ -5184,56 +5261,31 @@
 
     try {
       const fields = await personFormFields(__modalPerson.email);
+
+      const kinds = kind === "all"
+        ? passportRows(__passportState, __modalPerson).filter(r => r.canApply).map(r => r.key)
+        : [kind];
+      if (kinds.length === 0) return fail("There's nothing to apply.");
+
       const application = {};
       const contact = {};
-      let touchedForm = false;
+      const skipped = [];
+      let nameApplied = false;
+      let nameFormMissing = false;
 
-      if (kind === "name") {
-        const first = __passportState.passportFirst || "";
-        const last = __passportState.passportLast || "";
-        if (!first && !last) return fail("There's no name from the passport to apply.");
-
-        // The contact holds first + last only.
-        const given = first.split(/\s+/).filter(Boolean);
-        contact.firstname = given[0] || "";
-        contact.lastname = last;
-
-        const wanted = PASSPORT_NAME_LABELS.map(normaliseLabel);
-        const nameField = fields.find(f =>
-          f.composite && f.type === "control_fullname" && wanted.includes(normaliseLabel(f.label))
-        );
-        if (nameField) {
-          application[`${nameField.qid}_first`] = given[0] || "";
-          if (nameField.subfields?.some(sf => sf.key === `${nameField.qid}_middle`)) {
-            // Cleared when the passport has no second given name, so the
-            // record can't keep a middle name the document doesn't have.
-            application[`${nameField.qid}_middle`] = given.slice(1).join(" ");
-          }
-          application[`${nameField.qid}_last`] = last;
-          touchedForm = true;
+      for (const k of kinds) {
+        const built = buildPassportApply(k, fields, __passportState);
+        if (built.skip) { skipped.push(built.skip); continue; }
+        Object.assign(application, built.application);
+        Object.assign(contact, built.contact);
+        if (k === "name") {
+          nameApplied = true;
+          nameFormMissing = !!built.formQuestionMissing;
         }
-      } else {
-        const value = {
-          number: __passportState.passportNumber,
-          dob: __passportState.passportDob,
-          expiry: __passportState.passportExpiry,
-        }[kind];
-        if (!value) return fail("There's nothing from the passport to apply for that field.");
+      }
 
-        const field = fields.find(f => f.editable && PASSPORT_FIELD_MATCHERS[kind]?.(f));
-        if (!field) return fail(`The application form has no ${kind === "number" ? "passport-number" : kind === "dob" ? "date-of-birth" : "expiry-date"} question to update.`);
-
-        if (field.composite) {
-          // A date question: written day / month / year, never as one string.
-          const [y, m, d] = String(value).split("-");
-          if (!y || !m || !d) return fail("That date couldn't be written to the form.");
-          application[`${field.qid}_day`] = String(Number(d));
-          application[`${field.qid}_month`] = String(Number(m));
-          application[`${field.qid}_year`] = y;
-        } else {
-          application[field.qid] = value;
-        }
-        touchedForm = true;
+      if (Object.keys(application).length === 0 && Object.keys(contact).length === 0) {
+        return fail(skipped.length ? `Couldn't apply: ${skipped.join("; ")}.` : "There's nothing to apply.");
       }
 
       const res = await apiFetch("/.netlify/functions/update-person", {
@@ -5249,22 +5301,22 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) return fail(data.error || `Couldn't apply that (HTTP ${res.status}).`);
 
-      if (kind === "name") {
-        setPassportMessage(touchedForm
-          ? "Applied. The record and the application form now match the passport."
-          : "Applied to the contact record. The application form has no passport-name question to update.");
-        refreshCurrentRoster();
-        const first = (__passportState.passportFirst || "").split(/\s+/)[0] || "";
-        const newName = [first, __passportState.passportLast || ""].filter(Boolean).join(" ");
-        setTimeout(() => openApplicationModal(__modalPerson.email, newName, __modalPerson.tripLeaderOnly), 900);
-        return;
-      }
+      const notes = [];
+      if (kinds.length > 1) notes.push(`Applied ${kinds.length - skipped.length} details from the passport.`);
+      if (nameFormMissing) notes.push("The application form has no passport-name question, so only the contact record was updated.");
+      skipped.forEach(sk => notes.push(`Not applied — ${sk}.`));
+      setPassportMessage(notes.length ? notes.join(" ") : "Applied. Re-checking against the passport…");
 
-      setPassportMessage("Applied. Re-checking against the passport…");
       refreshCurrentRoster();
-      // Re-read so the cached verdict reflects the corrected value rather
-      // than sitting stale on the old one.
-      setTimeout(rereadPassport, 600);
+
+      // Re-open so the detail below the panel reflects the new values, and
+      // force the passport read: the cache is keyed on the photo, so without
+      // this the panel would re-render the verdicts we just fixed.
+      __forcePassportRead = true;
+      const newName = nameApplied
+        ? [(__passportState.passportFirst || "").split(/\s+/)[0], __passportState.passportLast || ""].filter(Boolean).join(" ")
+        : __modalPerson.name;
+      setTimeout(() => openApplicationModal(__modalPerson.email, newName, __modalPerson.tripLeaderOnly), 900);
     } catch (err) {
       fail(`Couldn't apply that: ${err.message || String(err)}`);
     }

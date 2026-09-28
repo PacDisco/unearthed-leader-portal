@@ -73,9 +73,13 @@ birth, expiry — with what's on record beside what the document says, a tick on
 the rows that agree, and a **USE THIS** button on the rows that don't. Applying
 writes to the right place automatically: the name goes to both the HubSpot
 contact and the form's name question; the number and the dates go to the form.
+When more than one row can be applied there is also a **USE ALL n FROM
+PASSPORT** button, which sends them as a single write — one save, one audit
+note — rather than repeating the round trip per field.
 Dates are written day / month / year rather than as one string, so the stored
-shape survives. Each apply re-reads afterwards so the cached verdict catches
-up. Apply is only offered on a fresh read, since the values aren't stored.
+shape survives. Each apply re-reads afterwards so the cached verdicts catch up: the
+cache is keyed on the photo, so without a forced re-read the panel would
+redraw the verdicts that were just corrected. Apply is only offered on a fresh read, since the values aren't stored.
 
 **Ops / admin** — everything above, plus the **Passport details checked
 manually** tick. Ticking it records who and when, and settles the mismatch flag
