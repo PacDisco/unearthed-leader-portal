@@ -22,6 +22,7 @@ import { assertEmailAccess } from "./_shared/portal-access.js";
 // Shared with get-person-form.js / update-person.js so the submission a leader
 // EDITS is the same one this endpoint DISPLAYS.
 import { APPLICATION_FORM_IDS as DEFAULT_FORM_IDS } from "./_shared/application-forms.js";
+import { proxyUrl } from "./_shared/doc-token.js";
 
 export async function handler(event) {
   try {
@@ -98,7 +99,12 @@ export async function handler(event) {
     });
 
     const winner = matching[0];
-    const fields = extractFields(winner.submission);
+    // File links are returned ready-proxied, each with its own file-bound
+    // token. The browser used to build these itself by appending the session
+    // token from sessionStorage — which put a working session into every
+    // "VIEW" link on the page. It has no business holding that, and now
+    // doesn't need to.
+    const fields = extractFields(winner.submission, auth.session);
 
     return {
       statusCode: 200,
@@ -132,7 +138,7 @@ function submissionEmailMatches(submission, cleanEmail) {
   return false;
 }
 
-function extractFields(submission) {
+function extractFields(submission, session) {
   const answers = submission?.answers || {};
   const out = [];
 
@@ -149,7 +155,7 @@ function extractFields(submission) {
   for (const a of ordered) {
     const label = (a.text || a.name || "").trim();
     if (!label) continue;
-    const value = formatAnswer(a);
+    const value = formatAnswer(a, session);
     if (value == null || value === "") continue;
     out.push({
       qid: a.qid,
@@ -163,14 +169,14 @@ function extractFields(submission) {
   return out;
 }
 
-function formatAnswer(a) {
+function formatAnswer(a, session) {
   const v = a.answer;
   const t = String(a.type || "").toLowerCase();
   if (v == null) return null;
 
   if (t === "control_fileupload") {
-    if (Array.isArray(v)) return v.filter(Boolean);
-    return v ? [String(v)] : [];
+    const list = Array.isArray(v) ? v.filter(Boolean) : (v ? [String(v)] : []);
+    return list.map(u => proxyUrl(String(u), session) || String(u));
   }
 
   if (t === "control_datetime" && typeof v === "object") {

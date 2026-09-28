@@ -2093,30 +2093,19 @@
   // for offline viewing. Two kinds appear in the data:
   //   (a) already-built  /document-proxy?url=…&token=…  links (portraits,
   //       teacher photos, uploaded documents — the server builds these).
-  //   (b) raw upload URLs inside control_fileupload application fields, which
-  //       the page wraps with the session token at render time — we mirror
-  //       that here so the cached file matches the link rendered offline.
-  function collectDocUrls(text, out, token) {
+  //   (b) — removed. File fields used to arrive as raw upload URLs that the
+  //       page wrapped with its session token; the server now returns them
+  //       ready-proxied with a per-file token, so they are already covered by
+  //       the /document-proxy pass above and there is nothing to mirror.
+  function collectDocUrls(text, out) {
     if (!text) return;
     let norm = text;
     try { norm = JSON.stringify(JSON.parse(text)); } catch (_) {}
     let m;
     const re = /\/document-proxy\?url=[^"'\s\\]+/g;
     while ((m = re.exec(norm))) out.add(m[0]);
-    try {
-      const walk = (o) => {
-        if (!o || typeof o !== "object") return;
-        if (Array.isArray(o)) { o.forEach(walk); return; }
-        if (String(o.type || "").toLowerCase() === "control_fileupload" && Array.isArray(o.value)) {
-          o.value.filter(Boolean).forEach(u => {
-            out.add(`/document-proxy?url=${encodeURIComponent(String(u))}` +
-              (token ? `&token=${encodeURIComponent(token)}` : ""));
-          });
-        }
-        Object.keys(o).forEach(k => walk(o[k]));
-      };
-      walk(JSON.parse(text));
-    } catch (_) {}
+    // (No second pass: every file link in the payload is already a
+    // /document-proxy URL and was caught by the regex above.)
   }
 
   // Run async tasks over `items` with limited concurrency (keeps large trips
@@ -2137,7 +2126,6 @@
     }
     if (btn) { btn.disabled = true; btn.style.opacity = "0.6"; }
     const urls = offlineTargets();
-    const token = sessionStorage.getItem("portalToken") || "";
     const docUrls = new Set();
     let ok = 0, fail = 0, done = 0;
     setSaveStatus("Saving trip data… 0%");
@@ -2146,7 +2134,7 @@
         const res = await apiFetch(u);
         if (res && res.ok) {
           ok++;
-          try { collectDocUrls(await res.text(), docUrls, token); } catch (_) {}
+          try { collectDocUrls(await res.text(), docUrls); } catch (_) {}
         } else fail++;
       } catch (_) { fail++; }
       done++;
@@ -4326,6 +4314,11 @@
     if (passport.status === "no_photo") {
       return `<div class="passport-badge passport-badge--missing">NO PASSPORT PHOTO</div>`;
     }
+    if (passport.status === "unsupported") {
+      // Actionable in a way "needs a manual check" isn't: the fix is to ask
+      // for the file again in a readable format.
+      return `<div class="passport-badge passport-badge--missing">PASSPORT FILE CAN'T BE READ — RE-UPLOAD NEEDED</div>`;
+    }
     if (passport.status === "unreadable" || passport.status === "error") {
       return `<div class="passport-badge passport-badge--missing">PASSPORT NEEDS A MANUAL CHECK</div>`;
     }
@@ -5015,6 +5008,8 @@
     let message = "";
     if (state.status === "no_photo") {
       message = "No passport photo has been uploaded, so these details can't be checked against one.";
+    } else if (state.status === "unsupported") {
+      message = state.message || "The uploaded file isn't a photo or PDF, so it can't be read.";
     } else if (state.status === "unreadable") {
       message = state.message || "The passport couldn't be made out on the uploaded photo — check it by hand.";
     } else if (state.status === "error") {
@@ -5665,14 +5660,13 @@
     // and aren't capped at 6MB (passport scans, medical PDFs etc. routinely
     // run 4–10MB; the edge function streams up to ~20MB).
     if (t === "control_fileupload" && Array.isArray(field.value)) {
-      // The /document-proxy edge function authenticates via a ?token= query
-      // param (a new-tab link can't send an Authorization header), so append
-      // the current session token — same as the server-side URL builders do.
-      const token = sessionStorage.getItem("portalToken") || "";
-      const tokenSuffix = token ? `&token=${encodeURIComponent(token)}` : "";
+      // These arrive from the server already proxied, each carrying its own
+      // token bound to that one file. The page deliberately does NOT attach
+      // its session token to file links any more: a link is a thing people
+      // copy, paste and screenshot, and it should never be a session.
       const links = field.value
         .filter(Boolean)
-        .map(url => `<a href="/document-proxy?url=${encodeURIComponent(url)}${tokenSuffix}" target="_blank" rel="noopener" class="application-field-file">VIEW</a>`)
+        .map(url => `<a href="${attrEsc(url)}" target="_blank" rel="noopener" class="application-field-file">VIEW</a>`)
         .join("");
       return `
         <div class="application-field">

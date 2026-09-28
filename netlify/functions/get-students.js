@@ -10,11 +10,12 @@
 // value out of each deal payment_N string ("250, pi_xxx, 2026-03-12"), and
 // sums them.
 
-import { authenticate, tokenFromEvent } from "./_shared/auth.js";
+import { authenticate } from "./_shared/auth.js";
 import { assertPortalAccess } from "./_shared/portal-access.js";
 import { collectFileIds, resolveFileIds, resolvePhotoUrl } from "./_shared/hubspot-files.js";
 import { APPLICATION_FORM_IDS } from "./_shared/application-forms.js";
 import { ALL_PASSPORT_PROPS, shapePassportState } from "./_shared/passport.js";
+import { proxyUrl } from "./_shared/doc-token.js";
 
 export async function handler(event) {
   try {
@@ -194,11 +195,9 @@ export async function handler(event) {
     );
 
     const portraitsByEmail = await portraitsPromise;
-    // Append the caller's session token to portrait proxy URLs so the
-    // (auth-gated) /document-proxy can verify the viewer — <img> tags can't
-    // send an Authorization header.
-    const callerToken = tokenFromEvent(event);
-    const tokenSuffix = callerToken ? `&token=${encodeURIComponent(callerToken)}` : "";
+    // Each proxied file URL carries its OWN token, bound to that one file and
+    // expiring with this session. Previously these carried the caller's
+    // session token, which made any leaked image URL a working session.
     const students = studentsRaw.map(s => {
       const key = (s.email || "").toLowerCase().trim();
       const rawUrl = key ? portraitsByEmail.get(key) : null;
@@ -210,9 +209,7 @@ export async function handler(event) {
         // portrait photos routinely exceed the 6MB synchronous-function
         // response cap. The edge function streams the upstream body straight
         // through, supporting files up to ~20MB. Null when there's no match.
-        portraitUrl: rawUrl
-          ? `/document-proxy?url=${encodeURIComponent(rawUrl)}${tokenSuffix}`
-          : null
+        portraitUrl: rawUrl ? proxyUrl(rawUrl, auth.session) : null
       };
     });
 
@@ -240,10 +237,13 @@ export async function handler(event) {
       // caller's token appended — <img> can't send an Authorization header.
       let portraitUrl = null;
       if (rawPortrait) {
-        portraitUrl = `/document-proxy?url=${encodeURIComponent(rawPortrait)}${tokenSuffix}`;
+        portraitUrl = proxyUrl(rawPortrait, auth.session);
       } else if (headshot) {
+        // resolvePhotoUrl already decided whether this needs proxying; only a
+        // proxied one needs a token, and it must be bound to the SAME url it
+        // was built from.
         portraitUrl = headshot.startsWith("/document-proxy?")
-          ? `${headshot}${tokenSuffix}`
+          ? proxyUrl(decodeURIComponent(headshot.slice("/document-proxy?url=".length)), auth.session)
           : headshot;
       }
 

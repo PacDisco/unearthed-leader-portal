@@ -53,7 +53,11 @@ export const ALL_PASSPORT_PROPS = Object.values(PASSPORT_PROPS);
 export const PASSPORT_STATUS = {
   OK: "ok",                 // read, name extracted
   NO_PHOTO: "no_photo",     // nothing uploaded to read
-  UNREADABLE: "unreadable", // a photo exists but no name could be taken from it
+  UNREADABLE: "unreadable", // a file exists but no name could be taken from it
+  // A file exists but isn't a type we can send to be read (HEIC, .docx, a
+  // Word scan). Distinct from UNREADABLE so the card can say what to do
+  // about it — re-upload as a JPEG or PDF — rather than just "check by hand".
+  UNSUPPORTED: "unsupported",
   ERROR: "error",           // the read itself failed (API down, fetch failed)
 };
 

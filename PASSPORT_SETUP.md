@@ -140,7 +140,24 @@ two:
 
 A number missing from either side is `unknown`, never a mismatch.
 
-## 5. Accuracy
+## 5. File types
+
+Passport uploads are read as **JPEG, PNG, GIF, WebP or PDF**. PDFs matter:
+TapScanner, Adobe Scan and iOS Files all export PDFs by default, so a large
+share of real uploads are scans rather than photos. A multi-page scan is fine —
+the read is told to use the page showing the passport data and ignore the rest,
+though every page counts toward the API cost.
+
+Anything else — an iPhone HEIC, a Word document — is reported as
+**PASSPORT FILE CAN'T BE READ — RE-UPLOAD NEEDED**, with a message naming the
+format and what to ask for instead. That verdict is cached (it's a settled
+fact about that upload); a failed *download* is not cached, since it's
+transient.
+
+Size limits: 5MB for an image, 10MB for a PDF. Over that, the card says so
+rather than failing quietly.
+
+## 6. Accuracy
 
 The read is asked for the MRZ when it's legible and the printed page otherwise,
 and is instructed to report an uncertain read as unreadable rather than guess.

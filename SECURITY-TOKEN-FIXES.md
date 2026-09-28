@@ -47,3 +47,62 @@ and are rejected, so everyone re-logs in once after deploy.
 Load once online so the new service worker swaps in; everyone re-logs in
 (expected). Verify: log in, copy token, log out, confirm the copied token is
 rejected by a protected endpoint.
+
+## 4. Session token exposed in every file URL — FIXED
+
+**The problem.** Files are shown in `<img>` and `<a target="_blank">`, neither
+of which can send an `Authorization` header, so the credential rode in the
+query string:
+
+```
+/document-proxy?url=<jotform file>&token=<SESSION TOKEN>
+```
+
+That was the same token that authorises every API call. Two consequences:
+
+1. Anyone who obtained a document URL — browser history, a referrer header, a
+   pasted link, a screenshot, a support ticket — held a **working session** for
+   that user until it expired. For an admin, that is the whole CRM.
+2. `/document-proxy` only asked "is this a valid session", never "were you
+   given this file". Any signed-in user could proxy **any** Jotform or HubSpot
+   URL they could guess or reuse — another trip's passport scans included.
+
+**The fix.** `_shared/doc-token.js` mints a *doc token*: bound to one file
+URL, carrying no role, expiring with the session that minted it, and signed in
+a separate HMAC domain (`document-proxy.v1:`) so it cannot be replayed as a
+session token — or vice versa. `/document-proxy` now accepts only these, and
+checks the token against the URL actually being requested.
+
+A leaked document link therefore exposes that one file, until that session
+ends, and nothing else.
+
+**Where tokens are minted.** Server-side only, by the endpoints that hand out
+file links: `get-students` (portraits), `get-teachers` (staff photos),
+`get-uploaded-documents`, and `get-application-data` (file-upload answers,
+which are now returned ready-proxied). The browser no longer attaches a
+credential to anything — it previously read `portalToken` out of
+`sessionStorage` to build "VIEW" links, and no longer does. The session token
+now appears only in `Authorization` headers.
+
+**Why the tokens are deterministic.** The service worker caches files by URL,
+so a token that changed between renders would orphan everything already saved
+for offline use. Same viewer + same file + same session expiry produces a
+byte-identical token, so URLs stay stable for the life of the session.
+
+**Effect on existing links.** Any document URL already in a history, email or
+cached page stops working immediately — it carries a session token, which the
+proxy no longer accepts. Reloading the portal reissues every link. This is
+intended: those old URLs are exactly the credentials being retired.
+
+**Tests.** `test/doc-token.test.mjs` — one file only, no cross-file reuse, no
+role, session/doc tokens not interchangeable, tamper resistance, and the real
+edge handler run against real minted tokens (the Deno verifier and the Node
+minter are separate implementations of one scheme; if they drift, every
+document 401s).
+
+### Still worth doing
+
+- **Rotate `SESSION_SECRET`** if a document URL has been shared outside the
+  team. That invalidates every existing session and doc token at once.
+- Session tokens still last 12 hours (`TOKEN_TTL_MS` in `_shared/auth.js`).
+  Shortening that limits the window on any leaked credential.

@@ -9,7 +9,8 @@
 // cap to ~20MB and eliminating the base64 overhead entirely.
 //
 // Inputs (querystring):
-//   url — the full Jotform file URL returned by /form/{id}/submissions
+//   url   — the full Jotform / HubSpot file URL
+//   token — a doc token bound to that exact url (see _shared/doc-token.js)
 //
 // Required env var (Netlify): JOTFORM_API_KEY
 //
@@ -22,19 +23,26 @@ export default async (request, context) => {
   const url = new URL(request.url);
   const target = url.searchParams.get("url");
 
-  // Auth: require a valid portal session token. Files are referenced from
-  // <img>/<a> tags that can't send an Authorization header, so the token
-  // rides in the query string (?token=…). The URL builders in
-  // get-uploaded-documents.js and get-teachers.js append it. We verify the
-  // same HMAC-signed token the Node functions issue, but using Web Crypto
-  // because edge functions run on Deno (no Node `crypto` module).
-  const session = await verifySessionToken(url.searchParams.get("token"));
-  if (!session) {
-    return jsonResponse({ error: "Not authenticated." }, 401);
-  }
-
   if (!target) {
     return jsonResponse({ error: "Missing url" }, 400);
+  }
+
+  // Auth: a DOC token, bound to this exact file. Files are referenced from
+  // <img>/<a> tags that can't send an Authorization header, so the credential
+  // rides in the query string — which means it leaks the way query strings
+  // leak (history, referrers, pasted links). A doc token is built for that:
+  // it unlocks one file, it dies with the session that minted it, and it is
+  // signed in a different domain from the session token so it cannot be
+  // replayed against the API.
+  //
+  // Session tokens are deliberately NOT accepted here any more. They used to
+  // be, which meant a leaked document link was a working session, and any
+  // signed-in user could proxy any Jotform URL they could guess. Mirrors
+  // netlify/functions/_shared/doc-token.js, re-implemented on Web Crypto
+  // because edge functions run on Deno.
+  const doc = await verifyDocToken(url.searchParams.get("token"), target);
+  if (!doc) {
+    return jsonResponse({ error: "Not authorised for this file." }, 401);
   }
 
   // Validate the upstream URL.
@@ -179,13 +187,15 @@ function jsonResponse(payload, status) {
   });
 }
 
-// ----- Session token verification (Web Crypto / Deno) -----
-// Mirrors netlify/functions/_shared/auth.js, which signs tokens as
-//   base64url(JSON{email,role,exp}) + "." + base64url(HMAC_SHA256(payload))
-// We can't import that Node module here (different runtime), so we
-// re-implement verification with the Web Crypto API. Returns the decoded
-// payload on success, or null on any failure (missing/invalid/expired token,
-// or missing SESSION_SECRET — fail closed).
+// ----- Doc-token verification (Web Crypto / Deno) -----
+// Mirrors netlify/functions/_shared/doc-token.js, which signs tokens as
+//   "d1." + base64url(JSON{e,u,exp}) + "." + base64url(HMAC_SHA256(DOMAIN + body))
+// We can't import that Node module here (different runtime). Returns the
+// decoded payload on success, or null on any failure — bad signature,
+// expired, missing SESSION_SECRET, or a token minted for a different file.
+const DOC_DOMAIN = "document-proxy.v1:";
+const DOC_PREFIX = "d1";
+
 function b64urlToBytes(s) {
   s = s.replace(/-/g, "+").replace(/_/g, "/");
   while (s.length % 4) s += "=";
@@ -201,16 +211,24 @@ function bytesToB64url(bytes) {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-async function verifySessionToken(token) {
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashUrl(url) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(url || "")));
+  return bytesToHex(new Uint8Array(digest)).slice(0, 32);
+}
+
+async function verifyDocToken(token, targetUrl) {
   try {
     if (!token || typeof token !== "string") return null;
     const secret = Netlify.env.get("SESSION_SECRET");
     if (!secret || secret.length < 16) return null; // fail closed
 
-    const dot = token.indexOf(".");
-    if (dot < 1) return null;
-    const body = token.slice(0, dot);
-    const sig = token.slice(dot + 1);
+    const parts = token.split(".");
+    if (parts.length !== 3 || parts[0] !== DOC_PREFIX) return null;
+    const [, body, sig] = parts;
 
     const key = await crypto.subtle.importKey(
       "raw",
@@ -219,7 +237,7 @@ async function verifySessionToken(token) {
       false,
       ["sign"]
     );
-    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
+    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(DOC_DOMAIN + body));
     const expected = bytesToB64url(new Uint8Array(mac));
 
     // Constant-time-ish compare.
@@ -230,6 +248,9 @@ async function verifySessionToken(token) {
 
     const payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(body)));
     if (!payload || !payload.exp || Date.now() > payload.exp) return null;
+
+    // The whole point: this token is for ONE file.
+    if (payload.u !== await hashUrl(targetUrl)) return null;
     return payload;
   } catch (_) {
     return null;

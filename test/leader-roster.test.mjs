@@ -17,6 +17,7 @@ process.env.JOTFORM_APPLICATION_FORM_ID = "111111";
 
 const { createToken } = await import("../netlify/functions/_shared/auth.js");
 const { handler } = await import("../netlify/functions/get-students.js");
+const { verifyDocToken } = await import("../netlify/functions/_shared/doc-token.js");
 
 // Tests run SEQUENTIALLY: each one installs its own global fetch stub, so
 // overlapping them would let one test's stub answer another's request.
@@ -167,13 +168,20 @@ test("teacher card carries the contact fields the card renders", async () => {
   assert.equal(sarah.totalPaid, undefined);
 });
 
-test("form portrait wins, proxied with the caller's token", async () => {
+test("form portrait wins, proxied with a token scoped to that one file", async () => {
   stubFetch();
   const { body } = await callHandler();
   const sarah = body.teachers.find(t => t.name === "Sarah Okafor");
   assert.ok(sarah.portraitUrl.startsWith("/document-proxy?url="));
   assert.ok(sarah.portraitUrl.includes(encodeURIComponent("https://www.jotform.com/uploads/sarah.jpg")));
-  assert.ok(sarah.portraitUrl.includes(`token=${encodeURIComponent(TOKEN)}`));
+
+  // The photo link must NOT carry the session token — that would make a
+  // leaked image URL a working session. It carries a doc token, valid only
+  // for this file.
+  const token = new URLSearchParams(sarah.portraitUrl.split("?")[1]).get("token");
+  assert.ok(token && token !== TOKEN, "the session token leaked into a file URL");
+  assert.ok(verifyDocToken(token, "https://www.jotform.com/uploads/sarah.jpg"));
+  assert.equal(verifyDocToken(token, "https://www.jotform.com/uploads/mia.jpg"), null);
 });
 
 test("no form portrait falls back to the HubSpot headshot, unproxied", async () => {

@@ -31,8 +31,10 @@ import {
   buildOcrPatch, shapePassportState, compareDocumentNumbers, compareDates,
 } from "./_shared/passport.js";
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // Anthropic's per-image limit
-const SUPPORTED_MEDIA = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;  // Anthropic's per-image limit
+const MAX_PDF_BYTES = 10 * 1024 * 1024;   // well inside the request-size limit once base64'd
+const SUPPORTED_IMAGE_MEDIA = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const PDF_MEDIA = "application/pdf";
 
 function json(statusCode, payload) {
   return { statusCode, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
@@ -110,14 +112,30 @@ export async function handler(event) {
     }
 
     // 3. Fetch the image and read it.
-    let image;
+    let file;
     try {
-      image = await fetchImage(photoUrl);
+      file = await fetchDocument(photoUrl);
     } catch (err) {
-      console.warn("[read-passport] image fetch failed:", err?.message || err);
+      const unsupported = err instanceof FetchProblem && err.kind === "unsupported";
+      console.warn("[read-passport] file fetch failed:", err?.message || err);
+
+      // An unsupported file is a settled fact about that upload, so it's
+      // cached like any other verdict — re-reading it would just fail again.
+      // A download failure is transient and deliberately isn't cached.
+      const status = unsupported ? PASSPORT_STATUS.UNSUPPORTED : PASSPORT_STATUS.ERROR;
+      if (unsupported) {
+        await savePassportState(access.contactId, buildOcrPatch({
+          status, first: "", last: "", hash,
+          numberVerdict: NUMBER_VERDICT.UNKNOWN,
+          dobVerdict: DATE_VERDICT.UNKNOWN,
+          expiryVerdict: DATE_VERDICT.UNKNOWN,
+        }));
+      }
       return json(200, {
-        ...shapePassportState({ ...contact, [PASSPORT_PROPS.ocrStatus]: PASSPORT_STATUS.ERROR }, recorded),
-        message: "The passport photo couldn't be downloaded.",
+        ...shapePassportState({ ...contact, [PASSPORT_PROPS.ocrStatus]: status }, recorded),
+        message: unsupported
+          ? (err.detail || "That file type can't be read.")
+          : "The passport file couldn't be downloaded. Try again in a moment.",
       });
     }
 
@@ -127,7 +145,7 @@ export async function handler(event) {
 
     let read;
     try {
-      read = await readPassportImage(image);
+      read = await readPassportFile(file);
     } catch (err) {
       console.error("[read-passport] vision call failed:", err?.message || err);
       return json(200, {
@@ -285,7 +303,7 @@ function formPassportNumber(submission) {
 }
 
 // Jotform-hosted files need the API key appended server-side.
-async function fetchImage(url) {
+async function fetchDocument(url) {
   let target = url;
   try {
     const parsed = new URL(url);
@@ -299,19 +317,58 @@ async function fetchImage(url) {
   } catch (_) { /* use as-is */ }
 
   const res = await fetch(target);
-  if (!res.ok) throw new Error(`image fetch ${res.status}`);
+  if (!res.ok) throw new FetchProblem("download", `passport file fetch ${res.status}`);
 
   const contentType = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
   const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length === 0) throw new Error("empty image");
-  if (buf.length > MAX_IMAGE_BYTES) throw new Error(`image too large (${buf.length} bytes)`);
+  if (buf.length === 0) throw new FetchProblem("download", "empty file");
 
-  // A PDF scan can't be sent as an image block. Rather than guess, treat it as
-  // unreadable so it lands in the manual-check pile.
-  const mediaType = SUPPORTED_MEDIA.includes(contentType) ? contentType : guessMedia(target);
-  if (!mediaType) throw new Error(`unsupported passport file type: ${contentType || "unknown"}`);
+  // Scanner apps (TapScanner, Adobe Scan, iOS Files) export PDFs by default,
+  // so a large share of uploaded passports are PDFs rather than photos. They
+  // go to the API as a document block instead of an image block; everything
+  // downstream is identical.
+  const mediaType = SUPPORTED_IMAGE_MEDIA.includes(contentType) ? contentType
+    : contentType === PDF_MEDIA ? PDF_MEDIA
+    : guessMedia(target);
 
-  return { base64: buf.toString("base64"), mediaType };
+  if (!mediaType) {
+    throw new FetchProblem("unsupported", `unsupported passport file type: ${contentType || "unknown"}`,
+      describeType(contentType, target));
+  }
+
+  const isPdf = mediaType === PDF_MEDIA;
+  const cap = isPdf ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
+  if (buf.length > cap) {
+    throw new FetchProblem("unsupported",
+      `file too large (${buf.length} bytes)`,
+      `The uploaded file is ${(buf.length / 1024 / 1024).toFixed(1)}MB, over the ${Math.round(cap / 1024 / 1024)}MB limit for reading.`);
+  }
+
+  return { base64: buf.toString("base64"), mediaType, isPdf };
+}
+
+// Carries whether the problem was getting the file or the file itself, so the
+// card can say which — "couldn't be downloaded" sent people looking in the
+// wrong place when the real answer was "that's a PDF and we didn't send it".
+class FetchProblem extends Error {
+  constructor(kind, message, detail) {
+    super(message);
+    this.kind = kind;       // "download" | "unsupported"
+    this.detail = detail;   // a sentence for the person reading the card
+  }
+}
+
+// A human-readable "we can't read that" for the file types people actually
+// upload by mistake.
+function describeType(contentType, url) {
+  const ext = (String(url).split("?")[0].split(".").pop() || "").toLowerCase();
+  if (ext === "heic" || ext === "heif" || /hei[cf]/.test(contentType)) {
+    return "This is an iPhone HEIC photo, which can't be read. Ask for it again as a JPEG or PDF.";
+  }
+  if (/word|officedocument|msword/.test(contentType) || ["doc", "docx"].includes(ext)) {
+    return "This is a Word document. Ask for the passport as a photo or PDF.";
+  }
+  return `This file (${contentType || ext || "unknown type"}) isn't a photo or PDF, so it can't be read. Ask for a JPEG, PNG or PDF.`;
 }
 
 function guessMedia(url) {
@@ -320,13 +377,14 @@ function guessMedia(url) {
   if (clean.endsWith(".png")) return "image/png";
   if (clean.endsWith(".webp")) return "image/webp";
   if (clean.endsWith(".gif")) return "image/gif";
+  if (clean.endsWith(".pdf")) return PDF_MEDIA;
   return null;
 }
 
 // Asks the model for the name only, as strict JSON. The machine-readable zone
 // is preferred when it's legible because that's what the airline's system
 // reads; the printed page is the fallback.
-const PROMPT = `You are reading the photo page of a passport to extract the holder's name, passport number, date of birth and expiry date.
+const PROMPT = `You are reading the photo page of a passport (the file may be a scan of several pages — use the page showing the passport's printed data and machine-readable zone, and ignore the rest) to extract the holder's name, passport number, date of birth and expiry date.
 
 Prefer the machine-readable zone (the two lines of monospaced text with << separators) when it is legible, since that is the authoritative form of the name. Otherwise read the printed "Surname" and "Given names" fields.
 
@@ -342,7 +400,7 @@ Rules:
 - "date_of_birth" and "expiry_date" must be returned as YYYY-MM-DD. Take the century from the printed page, which shows a four-digit year — do NOT infer it from the MRZ's two-digit year. Leave a date "" if you cannot read it confidently.
 - Never invent a name, a number or a date. An uncertain read must be reported as not readable.`;
 
-async function readPassportImage({ base64, mediaType }) {
+async function readPassportFile({ base64, mediaType, isPdf }) {
   const base = (process.env.ANTHROPIC_API_BASE || "https://api.anthropic.com").replace(/\/+$/, "");
   const model = process.env.PASSPORT_OCR_MODEL || "claude-sonnet-4-5";
 
@@ -359,7 +417,9 @@ async function readPassportImage({ base64, mediaType }) {
       messages: [{
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+          isPdf
+            ? { type: "document", source: { type: "base64", media_type: mediaType, data: base64 } }
+            : { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
           { type: "text", text: PROMPT },
         ],
       }],

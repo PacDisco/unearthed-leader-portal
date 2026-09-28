@@ -7,12 +7,13 @@
 // Both lists feed the "SCHOOL CONTACTS" section on the portal so parents
 // see who's accompanying the trip and a short bio of each trip leader.
 
-import { authenticate, tokenFromEvent } from "./_shared/auth.js";
+import { authenticate } from "./_shared/auth.js";
 import { assertPortalAccess } from "./_shared/portal-access.js";
 // File-property → URL helpers. These used to live at the bottom of this file;
 // they moved to _shared/ so get-students.js can resolve school-leader
 // headshots the same way for the Expedition Leader tab roster.
 import { collectFileIds, resolveFileIds, resolvePhotoUrl } from "./_shared/hubspot-files.js";
+import { proxyUrl } from "./_shared/doc-token.js";
 
 export async function handler(event) {
   try {
@@ -113,15 +114,13 @@ export async function handler(event) {
     tripLeaders.sort((a, b) => a.name.localeCompare(b.name));
     admins.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Append the caller's session token to any /document-proxy photo URLs so
-    // the (now auth-gated) proxy can verify the viewer — <img> tags can't
-    // send an Authorization header.
-    const callerToken = tokenFromEvent(event);
-    if (callerToken) {
-      for (const c of [...teachers, ...tripLeaders, ...admins]) {
-        if (c.photoUrl && c.photoUrl.startsWith("/document-proxy?")) {
-          c.photoUrl += `&token=${encodeURIComponent(callerToken)}`;
-        }
+    // Give each proxied photo its own file-bound token rather than the
+    // caller's session token — a leaked photo URL should expose that photo,
+    // not the account.
+    for (const c of [...teachers, ...tripLeaders, ...admins]) {
+      if (c.photoUrl && c.photoUrl.startsWith("/document-proxy?")) {
+        const raw = decodeURIComponent(c.photoUrl.slice("/document-proxy?url=".length));
+        c.photoUrl = proxyUrl(raw, auth.session);
       }
     }
 

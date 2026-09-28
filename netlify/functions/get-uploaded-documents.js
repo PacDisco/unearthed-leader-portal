@@ -50,7 +50,8 @@
 //         "Upload", "File", "Attachment", "Photo Upload", etc.
 //   Specific labels like "Passport" or "Medical Form" never get overridden,
 //   so the application form is unaffected.
-import { authenticate, tokenFromEvent } from "./_shared/auth.js";
+import { proxyUrl } from "./_shared/doc-token.js";
+import { authenticate } from "./_shared/auth.js";
 import { assertEmailAccess } from "./_shared/portal-access.js";
 import {
   fetchHousehold,
@@ -129,10 +130,10 @@ export async function handler(event) {
     // Process all forms in parallel — title fetch + submissions fetch each.
     const perForm = await Promise.all(idList.map(id => loadFormData(id, audience, apiKey, baseUrl)));
 
-    // Aggregate. Append the caller's session token to each /document-proxy
-    // URL so the (now auth-gated) proxy can verify the viewer — <img>/<a>
-    // tags can't send an Authorization header, so the token rides in the URL.
-    const callerToken = tokenFromEvent(event);
+    // Aggregate. Each /document-proxy URL gets its OWN token, bound to that
+    // one file and expiring with this session — <img>/<a> tags can't send an
+    // Authorization header, so the credential has to ride in the URL, and a
+    // credential that rides in a URL should unlock as little as possible.
     const documents = [];
     const forms = [];
     let firstError = null;
@@ -140,8 +141,9 @@ export async function handler(event) {
       if (r.error && !firstError) firstError = r.error;
       forms.push({ id: r.id, title: r.title || null });
       for (const d of r.documents) {
-        if (callerToken && d.url && d.url.startsWith("/document-proxy?")) {
-          d.url += `&token=${encodeURIComponent(callerToken)}`;
+        if (d.url && d.url.startsWith("/document-proxy?")) {
+          const raw = decodeURIComponent(d.url.slice("/document-proxy?url=".length));
+          d.url = proxyUrl(raw, auth.session);
         }
         documents.push(d);
       }

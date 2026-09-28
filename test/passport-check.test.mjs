@@ -208,7 +208,7 @@ function stubFetch(opts = {}) {
                  answer: opts.formExpiry === undefined ? { day: "01", month: "06", year: "2030" } : opts.formExpiry },
           ...(opts.noPhoto ? {} : {
             "9": { type: "control_fileupload", text: "Passport Cover Page Photo", order: "9",
-                   answer: ["https://www.jotform.com/uploads/passport.jpg"] }
+                   answer: [opts.fileUrl || "https://www.jotform.com/uploads/passport.jpg"] }
           }),
         },
       }] });
@@ -217,15 +217,19 @@ function stubFetch(opts = {}) {
 
     if (u.includes("jotform.com/uploads/")) {
       sent.imageFetches++;
+      if (opts.fileDownloadFails) return jsonRes({}, false, 502);
+      const type = opts.fileType || "image/jpeg";
+      const size = opts.fileBytes || 7;
       return {
         ok: true, status: 200,
-        headers: { get: () => "image/jpeg" },
-        arrayBuffer: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).buffer,
+        headers: { get: () => type },
+        arrayBuffer: async () => new Uint8Array(size).buffer,
       };
     }
 
     if (u.includes("api.anthropic.com/v1/messages")) {
       sent.visionCalls++;
+      try { sent.visionBlocks = JSON.parse(body).messages[0].content.map(c => c.type); } catch (_) {}
       if (opts.visionFails) return jsonRes({ error: "boom" }, false, 500);
       const payload = opts.visionReply || {
         readable: true, surname: "SMITH", given_names: "JONATHAN MICHAEL",
@@ -505,6 +509,57 @@ test("an expiry mismatch alone still asks for attention", () => {
   }, { recordedFirst: "Jon", recordedLast: "Smith" });
   assert.equal(state.nameMatches, true);
   assert.equal(needsPassportAttention(state), true);
+});
+
+// --- 3d. file types ----------------------------------------------------------
+
+test("a PDF scan is read, as a document block not an image block", async () => {
+  // Scanner apps (TapScanner, Adobe Scan, iOS Files) export PDFs by default,
+  // so this is a large share of real uploads — it used to be refused outright.
+  stubFetch({ fileType: "application/pdf", fileUrl: "https://www.jotform.com/uploads/TapScanner%2002-07-2023.pdf" });
+  const { statusCode, body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(statusCode, 200);
+  assert.equal(body.status, "ok");
+  assert.equal(body.passportLast, "SMITH");
+  assert.deepEqual(sent.visionBlocks, ["document", "text"]);
+});
+
+test("an image still goes as an image block", async () => {
+  stubFetch();
+  await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.deepEqual(sent.visionBlocks, ["image", "text"]);
+});
+
+test("a PDF served without a content type is recognised by extension", async () => {
+  stubFetch({ fileType: "application/octet-stream", fileUrl: "https://www.jotform.com/uploads/scan.pdf" });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.status, "ok");
+  assert.deepEqual(sent.visionBlocks, ["document", "text"]);
+});
+
+test("a HEIC photo is reported as unreadable-by-format, with what to do", async () => {
+  stubFetch({ fileType: "image/heic", fileUrl: "https://www.jotform.com/uploads/IMG_0042.heic" });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.status, "unsupported");
+  assert.match(body.message, /JPEG or PDF/i);
+  assert.equal(sent.visionCalls, 0);
+  // Settled fact about that upload, so it's cached rather than re-read.
+  assert.equal(sent.patch[PASSPORT_PROPS.ocrStatus], "unsupported");
+});
+
+test("an oversized file says so rather than failing silently", async () => {
+  stubFetch({ fileType: "application/pdf", fileUrl: "https://www.jotform.com/uploads/big.pdf", fileBytes: 12 * 1024 * 1024 });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.status, "unsupported");
+  assert.match(body.message, /12\.0MB|over the 10MB/);
+});
+
+test("a download failure is transient — reported, not cached", async () => {
+  stubFetch({ fileDownloadFails: true });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.status, "error");
+  assert.match(body.message, /couldn't be downloaded/i);
+  assert.equal(sent.patch, null, "a transient failure must not be cached");
 });
 
 // --- 4. the ops tick --------------------------------------------------------
