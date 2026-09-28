@@ -97,7 +97,13 @@ export async function handler(event) {
     const hash = crypto.createHash("sha256").update(photoUrl).digest("hex").slice(0, 32);
     const cachedHash = contact[PASSPORT_PROPS.ocrHash] || "";
     const cachedStatus = contact[PASSPORT_PROPS.ocrStatus] || "";
-    if (!body.force && cachedHash === hash && cachedStatus === PASSPORT_STATUS.OK) {
+    // A cache entry only counts if it holds every verdict we now report.
+    // Records read before the date checks shipped have no dob/expiry verdict
+    // at all, and serving those as "unknown" forever would silently leave
+    // those two checks undone on every person already in the system.
+    const cacheComplete = [PASSPORT_PROPS.ocrNumber, PASSPORT_PROPS.ocrDob, PASSPORT_PROPS.ocrExpiry]
+      .every(prop => typeof contact[prop] === "string" && contact[prop] !== "");
+    if (!body.force && cachedHash === hash && cachedStatus === PASSPORT_STATUS.OK && cacheComplete) {
       return json(200, {
         ...shapePassportState(contact, recorded),
         cached: true,
@@ -392,21 +398,26 @@ function guessMedia(url) {
 // Asks the model for the name only, as strict JSON. The machine-readable zone
 // is preferred when it's legible because that's what the airline's system
 // reads; the printed page is the fallback.
-const PROMPT = `You are reading the photo page of a passport (the file may be a scan of several pages — use the page showing the passport's printed data and machine-readable zone, and ignore the rest) to extract the holder's name, passport number, date of birth and expiry date.
+const PROMPT = `You are TRANSCRIBING the photo page of a passport. Copy what is printed. Do not interpret, normalise, correct, expand, abbreviate or reorder anything.
 
-Prefer the machine-readable zone (the two lines of monospaced text with << separators) when it is legible, since that is the authoritative form of the name. Otherwise read the printed "Surname" and "Given names" fields.
+The scan may be ROTATED (sideways or upside down), may be one page of several, and may show two pages side by side. Find the passport data page whatever its orientation and read it; ignore any other page.
+
+Many passports are BILINGUAL, with each field labelled twice (for example "Rā whānau / Date of birth", "Rā tīmatanga / Date of issue", "Rā mutunga / Date of expiry"). Read the English label to identify each field.
+
+WHICH SOURCE TO USE
+- Names: read the PRINTED "Surname" and "Given names" fields. They carry accents, full spellings and the holder's own capitalisation. Then CHECK your reading against the machine-readable zone (the two monospaced lines at the bottom, where << separates surname from given names and < stands for a space). Differences of accent (MÜLLER vs MULLER) or MRZ truncation are expected — ignore those. But if the LETTERS genuinely disagree, you have misread one of them: set "readable": false and say which fields disagreed. Do not pick one.
+- Dates and passport number: take them from the machine-readable zone, where the positions are fixed and unambiguous, and confirm the century against the printed four-digit year. In the second MRZ line, characters 1-9 are the passport number, 14-19 are the date of birth as YYMMDD, and 22-27 are the date of expiry as YYMMDD. If the MRZ is illegible, read the printed fields instead — and take care not to confuse Date of issue with Date of expiry; the expiry is the later of the two.
 
 Reply with ONLY a JSON object, no other text:
-{"readable": true|false, "surname": "", "given_names": "", "document_number": "", "date_of_birth": "", "expiry_date": "", "source": "mrz"|"printed", "reason": ""}
+{"readable": true|false, "surname": "", "given_names": "", "document_number": "", "date_of_birth": "", "expiry_date": "", "source": "printed"|"mrz", "reason": ""}
 
 Rules:
-- "surname" is the family name; "given_names" is every given name, space separated.
-- In the MRZ, << separates surname from given names and < stands for a space. Convert them back.
-- Keep the passport's own spelling and order. Do not correct, expand or guess any part of a name.
-- If the image is not a passport, is too blurred, or the name cannot be made out with confidence, return {"readable": false, "surname": "", "given_names": "", "source": "", "reason": "<short reason>"}.
-- "document_number" is the passport number: the field labelled Passport No. on the printed page, or characters 1-9 of the second MRZ line. Give it exactly as printed, without spaces. Leave it "" if you cannot read it confidently — a guessed number is worse than none.
-- "date_of_birth" and "expiry_date" must be returned as YYYY-MM-DD. Take the century from the printed page, which shows a four-digit year — do NOT infer it from the MRZ's two-digit year. Leave a date "" if you cannot read it confidently.
-- Never invent a name, a number or a date. An uncertain read must be reported as not readable.`;
+- "surname" is exactly what the Surname field says. "given_names" is exactly what the Given names field says, in that order, including every given name. Do NOT split, label or reorder them — the passport does not say which is a "first" name and which is a "middle" name, and neither should you.
+- Keep the passport's own spelling, accents, hyphens, apostrophes and capitalisation. Do not transliterate.
+- "document_number" exactly as shown, without spaces.
+- "date_of_birth" and "expiry_date" as YYYY-MM-DD. That is a format for the date you read, not a licence to infer one.
+- Leave any single field "" if you cannot read it with confidence, and set "readable": false if the name itself cannot be made out. A blank is always better than a guess: everything here is copied onto a booking, and a plausible-looking wrong value is worse than a missing one because nobody checks it again.
+- Never invent, complete or "tidy" a name, a number or a date.`;
 
 async function readPassportFile({ base64, mediaType, isPdf }) {
   const base = (process.env.ANTHROPIC_API_BASE || "https://api.anthropic.com").replace(/\/+$/, "");
@@ -480,18 +491,28 @@ function cleanDate(v) {
   return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : "";
 }
 
-// Passport numbers are alphanumeric; strip MRZ filler and any separators the
-// model echoed back.
+// Strip MRZ filler and whitespace, and nothing else. This used to uppercase
+// and drop every non-alphanumeric character, which would silently rewrite a
+// number that legitimately contains one. Case and separators are irrelevant
+// to the comparison anyway — normaliseDocNumber() in _shared/passport.js
+// handles that — so there is no reason to alter what is stored or shown.
 function cleanDocNumber(v) {
-  return String(v == null ? "" : v).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return String(v == null ? "" : v)
+    .replace(/</g, "")
+    .replace(/[\s\u0000-\u001f\u007f]/g, "")
+    .trim();
 }
 
-// Names only: letters, spaces, hyphens and apostrophes. Anything else is OCR
-// noise or MRZ filler that shouldn't be written to a record.
+// Decode MRZ filler and tidy whitespace — nothing else. This used to strip
+// every character outside [letters, space, hyphen, apostrophe], which quietly
+// altered real names (a name containing a period or a numeral-like glyph came
+// out different from the document). What goes on a booking has to be what the
+// passport says, so the only transformations here are ones that are provably
+// not part of the name: the MRZ's "<" padding, and runs of whitespace.
 function cleanNamePart(v) {
   return String(v == null ? "" : v)
     .replace(/</g, " ")
-    .replace(/[^\p{L}\s'-]/gu, " ")
+    .replace(/[\u0000-\u001f\u007f]/g, "")  // control characters only
     .replace(/\s+/g, " ")
     .trim();
 }

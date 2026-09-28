@@ -283,6 +283,9 @@ test("a second look uses the cache instead of the vision API", async () => {
     [PASSPORT_PROPS.ocrStatus]: "ok",
     [PASSPORT_PROPS.ocrFirst]: "JONATHAN",
     [PASSPORT_PROPS.ocrLast]: "SMITH",
+    [PASSPORT_PROPS.ocrNumber]: "match",
+    [PASSPORT_PROPS.ocrDob]: "match",
+    [PASSPORT_PROPS.ocrExpiry]: "match",
     // sha256 of the photo URL, first 32 chars — same as the handler computes.
     [PASSPORT_PROPS.ocrHash]: (await import("node:crypto")).createHash("sha256")
       .update("https://www.jotform.com/uploads/passport.jpg").digest("hex").slice(0, 32),
@@ -296,6 +299,9 @@ test("a second look uses the cache instead of the vision API", async () => {
 test("force re-reads even when cached", async () => {
   stubFetch({ contactProps: {
     [PASSPORT_PROPS.ocrStatus]: "ok",
+    [PASSPORT_PROPS.ocrNumber]: "match",
+    [PASSPORT_PROPS.ocrDob]: "match",
+    [PASSPORT_PROPS.ocrExpiry]: "match",
     [PASSPORT_PROPS.ocrHash]: (await import("node:crypto")).createHash("sha256")
       .update("https://www.jotform.com/uploads/passport.jpg").digest("hex").slice(0, 32),
   } });
@@ -610,6 +616,83 @@ test("expiry labelled 'Valid Until' is still found", async () => {
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
   assert.equal(body.formExpiry, "2030-06-01");
   assert.equal(body.expiryVerdict, DATE_VERDICT.MATCH);
+});
+
+test("given names come back whole — the read never splits first from middle", async () => {
+  // A passport has "Surname" and "Given names". It does not say which given
+  // name is a first and which is a middle, so neither may we.
+  stubFetch();
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.passportFirst, "JONATHAN MICHAEL");
+  assert.equal(body.passportLast, "SMITH");
+});
+
+test("a name is transcribed verbatim — accents and punctuation survive", async () => {
+  stubFetch({ visionReply: {
+    readable: true, surname: "ST. JOHN-MÜLLER", given_names: "MARÍA JOSÉ",
+    document_number: "LA123456", date_of_birth: "2008-03-15", expiry_date: "2030-06-01",
+    source: "printed", reason: "",
+  } });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  // The old cleaner stripped everything outside [letters, space, hyphen,
+  // apostrophe], which turned "ST. JOHN-MÜLLER" into "ST JOHN-MÜLLER".
+  assert.equal(body.passportLast, "ST. JOHN-MÜLLER");
+  assert.equal(body.passportFirst, "MARÍA JOSÉ");
+});
+
+test("MRZ filler is decoded, but nothing else is altered", async () => {
+  stubFetch({ visionReply: {
+    readable: true, surname: "VAN<DER<BERG", given_names: "JAN<PIETER",
+    document_number: "", date_of_birth: "", expiry_date: "", source: "mrz", reason: "",
+  } });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.passportLast, "VAN DER BERG");
+  assert.equal(body.passportFirst, "JAN PIETER");
+});
+
+test("a passport number keeps its own punctuation and case", async () => {
+  stubFetch({ visionReply: {
+    readable: true, surname: "SMITH", given_names: "JON",
+    document_number: "la-123456", date_of_birth: "", expiry_date: "", source: "printed", reason: "",
+  } });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.passportNumber, "la-123456");
+  // Comparison is still case- and separator-insensitive, so this matches the
+  // "LA123456" on the form.
+  assert.equal(body.numberVerdict, NUMBER_VERDICT.MATCH);
+});
+
+test("a date that isn't returned in the exact requested form is dropped, never coerced", async () => {
+  stubFetch({ visionReply: {
+    readable: true, surname: "SMITH", given_names: "JON",
+    document_number: "LA123456", date_of_birth: "circa 2008", expiry_date: "2030/06/01",
+    source: "printed", reason: "",
+  } });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.passportDob, "");
+  assert.equal(body.passportExpiry, "");
+});
+
+test("a cache from before the date checks is re-read, not served as blanks", async () => {
+  // Every record read before the dob/expiry checks shipped has no verdict
+  // stored for them. Treating that as a valid cache would leave those two
+  // checks permanently undone on everyone already in the system, and the
+  // panel would show the dates as empty forever.
+  const { createHash } = await import("node:crypto");
+  stubFetch({ contactProps: {
+    [PASSPORT_PROPS.ocrStatus]: "ok",
+    [PASSPORT_PROPS.ocrFirst]: "JONATHAN",
+    [PASSPORT_PROPS.ocrLast]: "SMITH",
+    [PASSPORT_PROPS.ocrNumber]: "match",
+    // dob + expiry verdicts absent — an older read.
+    [PASSPORT_PROPS.ocrHash]: createHash("sha256")
+      .update("https://www.jotform.com/uploads/passport.jpg").digest("hex").slice(0, 32),
+  } });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.notEqual(body.cached, true, "a stale cache must not be served");
+  assert.equal(sent.visionCalls, 1);
+  assert.equal(body.passportDob, "2008-03-15");
+  assert.equal(body.dobVerdict, DATE_VERDICT.MATCH);
 });
 
 // --- 4. the ops tick --------------------------------------------------------

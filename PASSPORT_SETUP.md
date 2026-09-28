@@ -117,6 +117,35 @@ If a check shows *not on the form*, the question exists under wording none of
 the above catch. Add the pattern to `DOB_LABELS` / `EXPIRY_LABELS` in
 `read-passport.js`.
 
+## 3b. Verbatim, not interpreted
+
+What the read returns is a **transcription**. The prompt asks for the printed
+fields — which carry accents, full spellings and the holder's own
+capitalisation — and uses the machine-readable zone only when the print is
+illegible, because the MRZ is a transliteration (accents stripped, long names
+truncated). The source used is reported per read.
+
+Nothing is tidied on the way through. Only two transformations are applied,
+both provably not part of the value: MRZ `<` padding is decoded back to
+spaces, and runs of whitespace are collapsed. `ST. JOHN-MÜLLER` stays
+`ST. JOHN-MÜLLER`; a passport number keeps its own case and punctuation.
+(Comparison is separately case- and separator-insensitive, so none of this
+affects whether something matches.)
+
+**Given names are never split.** A passport has two name fields, Surname and
+Given names, and says nothing about which given name is a "first" and which is
+a "middle". So applying a name maps the passport's two fields onto the
+record's two: every given name goes into the first-name field as printed, the
+surname into the last-name field, and the form's middle-name subfield is
+cleared rather than guessed at. A ticket carries the given names as printed,
+which is the point of the exercise.
+
+A field that can't be read confidently comes back empty, and a date that
+isn't returned in the exact requested form is dropped rather than coerced. A
+blank is always better than a guess here: everything on this panel is copied
+onto a booking, and a plausible-looking wrong value is worse than a missing
+one because nobody checks it again.
+
 ## 4. How names are compared
 
 Comparison follows ICAO 9303, the rules a passport's machine-readable zone is
@@ -182,6 +211,43 @@ two:
   dismiss the flag, and calling it a match would hide a real error.
 
 A number missing from either side is `unknown`, never a mismatch.
+
+### Reading a rotated or bilingual scan
+
+The read is told the scan may be sideways or upside down, may be one page of
+several, and may show two pages at once. It is also told that passports are
+often bilingual — a New Zealand passport labels every field twice
+("Rā mutunga / Date of expiry") — and to identify fields by the English label,
+taking care not to read **Date of issue** as the expiry.
+
+Names come from the printed fields and are then checked against the
+machine-readable zone. Accent differences (MÜLLER vs MULLER) and MRZ
+truncation are expected and ignored, but if the letters genuinely disagree the
+read reports itself unreadable rather than picking one — a misread surname is
+the single most expensive thing this can get wrong.
+
+Dates and the passport number come from the MRZ, where the positions are
+fixed, with the century confirmed against the printed four-digit year. The
+printed fields are the fallback when the MRZ is illegible.
+
+### When the cache is not used
+
+A cached result is only served when it holds **every** verdict currently
+reported. A record read before the date checks shipped has no dob or expiry
+verdict, so it is re-read rather than served with those two checks blank
+forever. Uploading a new photo, or pressing RE-READ, also forces a fresh read.
+
+### What a cached view can and cannot say
+
+A cached response carries verdicts, not values — the values were never stored.
+So the "on passport" column shows the verdict ("differs — re-read to see it"),
+and RE-READ reveals the actual value.
+
+A verdict of `unknown` means nothing was *compared*, which happens either
+because the form has no value or because the field wasn't read. From a cached
+view the two are indistinguishable, so the cell says **"not compared — re-read
+to check"**. It previously said "not on the passport", which was a claim the
+data didn't support.
 
 ## 5. File types
 
