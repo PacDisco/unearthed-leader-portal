@@ -214,6 +214,26 @@ test("read-only types are refused whatever the caller claims", () => {
   assert.equal(skipped.length, 2);
 });
 
+test("a date is writable through its subfields but not as a flat string", () => {
+  // Flat write refused — that's what corrupts the stored {day, month, year}.
+  const flat = buildUpdatePayload(SUBMISSION, { "5": "2031-01-01" }, { allowSensitiveBlank: true });
+  assert.deepEqual(flat.fields, {});
+
+  // Subfield write accepted — this is how a passport expiry gets corrected.
+  const parts = buildUpdatePayload(
+    SUBMISSION, { "5_day": "2", "5_month": "7", "5_year": "2031" }, { allowSensitiveBlank: true }
+  );
+  assert.deepEqual(parts.fields, { "5_day": "2", "5_month": "7", "5_year": "2031" });
+});
+
+test("an unknown date subfield is refused", () => {
+  const { fields, skipped } = buildUpdatePayload(
+    SUBMISSION, { "5_hour": "09" }, { allowSensitiveBlank: true }
+  );
+  assert.deepEqual(fields, {});
+  assert.match(skipped[0].reason, /subfield/);
+});
+
 test("address composites are written subfield by subfield", () => {
   const { fields } = buildUpdatePayload(SUBMISSION, { "6_city": "Wanaka" }, { allowSensitiveBlank: true });
   assert.deepEqual(fields, { "6_city": "Wanaka" });

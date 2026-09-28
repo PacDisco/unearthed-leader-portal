@@ -27,8 +27,8 @@ import { resolveRosterEditAccess } from "./_shared/portal-access.js";
 import { APPLICATION_FORM_IDS_CSV } from "./_shared/application-forms.js";
 import { findSubmissionByEmail } from "./lib/jotform.js";
 import {
-  PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT,
-  buildOcrPatch, shapePassportState, compareDocumentNumbers,
+  PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT, DATE_VERDICT,
+  buildOcrPatch, shapePassportState, compareDocumentNumbers, compareDates,
 } from "./_shared/passport.js";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // Anthropic's per-image limit
@@ -79,6 +79,8 @@ export async function handler(event) {
       await savePassportState(access.contactId, buildOcrPatch({
         status: PASSPORT_STATUS.NO_PHOTO, first: "", last: "", hash: "",
         numberVerdict: NUMBER_VERDICT.UNKNOWN,
+        dobVerdict: DATE_VERDICT.UNKNOWN,
+        expiryVerdict: DATE_VERDICT.UNKNOWN,
       }));
       return json(200, {
         ...shapePassportState({
@@ -102,6 +104,8 @@ export async function handler(event) {
         // here — it was never stored — so a cached mismatch shows the verdict
         // and RE-READ reveals both.
         formNumber: formPassportNumber(submission.submission) || "",
+        formDob: formFieldValue(submission.submission, DOB_LABELS) || "",
+        formExpiry: formFieldValue(submission.submission, EXPIRY_LABELS) || "",
       });
     }
 
@@ -140,9 +144,18 @@ export async function handler(event) {
     const formNumber = formPassportNumber(submission.submission);
     const numberComparison = compareDocumentNumbers(formNumber, read.number);
 
+    // Same treatment for the two dates. A wrong date of birth or a passport
+    // that expires before the trip both stop someone travelling.
+    const formDob = formFieldValue(submission.submission, DOB_LABELS);
+    const formExpiry = formFieldValue(submission.submission, EXPIRY_LABELS);
+    const dobComparison = compareDates(formDob, read.dob);
+    const expiryComparison = compareDates(formExpiry, read.expiry);
+
     const patch = buildOcrPatch({
       status, first: read.first, last: read.last, hash,
       numberVerdict: numberComparison.verdict,
+      dobVerdict: dobComparison.verdict,
+      expiryVerdict: expiryComparison.verdict,
     });
     const saved = await savePassportState(access.contactId, patch);
 
@@ -155,6 +168,10 @@ export async function handler(event) {
       // the verdict without the number, and RE-READ reveals it again.
       formNumber: formNumber || "",
       passportNumber: read.number || "",
+      formDob: formDob || "",
+      passportDob: read.dob || "",
+      formExpiry: formExpiry || "",
+      passportExpiry: read.expiry || "",
       message: status === PASSPORT_STATUS.UNREADABLE
         ? (read.reason || "The name couldn't be made out on this photo — check it by hand.")
         : null,
@@ -223,6 +240,35 @@ function passportPhotoUrl(submission) {
   return null;
 }
 
+// Question labels for the two dates, kept in step with FIELD_MAP.travel in
+// lib/group-info.js so the export and this check read the same questions.
+const DOB_LABELS = [/date\s*of\s*birth/i, /^dob$/i, /birth\s*date/i];
+const EXPIRY_LABELS = [/expiry/i, /expiration/i];
+
+// First answered field whose label matches any of the patterns. Dates come
+// back from Jotform as a {day, month, year} object, which is flattened to
+// YYYY-MM-DD so it compares against the passport's date directly.
+function formFieldValue(submission, patterns) {
+  const answers = submission?.answers || {};
+  for (const key of Object.keys(answers)) {
+    const a = answers[key] || {};
+    const label = String(a.text || a.name || "");
+    if (!patterns.some(re => re.test(label))) continue;
+
+    const v = a.answer;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const { day, month, year } = v;
+      if (day && month && year) {
+        return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      }
+      continue;
+    }
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number") return String(v);
+  }
+  return "";
+}
+
 // The passport number as typed on the application form — the value the
 // comparison is against. Matched by label, like every other form lookup here.
 function formPassportNumber(submission) {
@@ -280,12 +326,12 @@ function guessMedia(url) {
 // Asks the model for the name only, as strict JSON. The machine-readable zone
 // is preferred when it's legible because that's what the airline's system
 // reads; the printed page is the fallback.
-const PROMPT = `You are reading the photo page of a passport to extract the holder's name and the passport number.
+const PROMPT = `You are reading the photo page of a passport to extract the holder's name, passport number, date of birth and expiry date.
 
 Prefer the machine-readable zone (the two lines of monospaced text with << separators) when it is legible, since that is the authoritative form of the name. Otherwise read the printed "Surname" and "Given names" fields.
 
 Reply with ONLY a JSON object, no other text:
-{"readable": true|false, "surname": "", "given_names": "", "document_number": "", "source": "mrz"|"printed", "reason": ""}
+{"readable": true|false, "surname": "", "given_names": "", "document_number": "", "date_of_birth": "", "expiry_date": "", "source": "mrz"|"printed", "reason": ""}
 
 Rules:
 - "surname" is the family name; "given_names" is every given name, space separated.
@@ -293,7 +339,8 @@ Rules:
 - Keep the passport's own spelling and order. Do not correct, expand or guess any part of a name.
 - If the image is not a passport, is too blurred, or the name cannot be made out with confidence, return {"readable": false, "surname": "", "given_names": "", "source": "", "reason": "<short reason>"}.
 - "document_number" is the passport number: the field labelled Passport No. on the printed page, or characters 1-9 of the second MRZ line. Give it exactly as printed, without spaces. Leave it "" if you cannot read it confidently — a guessed number is worse than none.
-- Never invent a name or a number. An uncertain read must be reported as not readable.`;
+- "date_of_birth" and "expiry_date" must be returned as YYYY-MM-DD. Take the century from the printed page, which shows a four-digit year — do NOT infer it from the MRZ's two-digit year. Leave a date "" if you cannot read it confidently.
+- Never invent a name, a number or a date. An uncertain read must be reported as not readable.`;
 
 async function readPassportImage({ base64, mediaType }) {
   const base = (process.env.ANTHROPIC_API_BASE || "https://api.anthropic.com").replace(/\/+$/, "");
@@ -333,13 +380,15 @@ async function readPassportImage({ base64, mediaType }) {
 
   const parsed = parseJsonObject(text);
   if (!parsed || parsed.readable !== true) {
-    return { first: "", last: "", number: "", reason: (parsed && parsed.reason) || "" };
+    return { first: "", last: "", number: "", dob: "", expiry: "", reason: (parsed && parsed.reason) || "" };
   }
 
   return {
     first: cleanNamePart(parsed.given_names),
     last: cleanNamePart(parsed.surname),
     number: cleanDocNumber(parsed.document_number),
+    dob: cleanDate(parsed.date_of_birth),
+    expiry: cleanDate(parsed.expiry_date),
     source: parsed.source || "",
     reason: "",
   };
@@ -354,6 +403,13 @@ function parseJsonObject(text) {
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
   try { return JSON.parse(text.slice(start, end + 1)); } catch (_) { return null; }
+}
+
+// Only an exact YYYY-MM-DD is accepted back. Anything else the model returned
+// is discarded rather than guessed at — a wrong date is worse than no date.
+function cleanDate(v) {
+  const t = String(v == null ? "" : v).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : "";
 }
 
 // Passport numbers are alphanumeric; strip MRZ filler and any separators the

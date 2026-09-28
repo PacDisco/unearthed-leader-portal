@@ -19,6 +19,7 @@ const { createToken } = await import("../netlify/functions/_shared/auth.js");
 const {
   normaliseName, compareNames, formatPassportName, shapePassportState, PASSPORT_PROPS,
   normaliseDocNumber, compareDocumentNumbers, needsPassportAttention, NUMBER_VERDICT,
+  parseDateCandidates, compareDates, DATE_VERDICT,
 } = await import("../netlify/functions/_shared/passport.js");
 const { handler: readPassport } = await import("../netlify/functions/read-passport.js");
 const { handler: setVerified } = await import("../netlify/functions/set-passport-verified.js");
@@ -201,6 +202,10 @@ function stubFetch(opts = {}) {
           "1": { type: "control_email", text: "Email", order: "1", answer: "mia@example.com" },
           "7": { type: "control_textbox", text: "Passport Number", order: "7",
                  answer: opts.formNumber === undefined ? "LA123456" : opts.formNumber },
+          "5": { type: "control_datetime", text: "Date of Birth", order: "5",
+                 answer: opts.formDob === undefined ? { day: "15", month: "03", year: "2008" } : opts.formDob },
+          "6": { type: "control_datetime", text: "Expiry Date", order: "6",
+                 answer: opts.formExpiry === undefined ? { day: "01", month: "06", year: "2030" } : opts.formExpiry },
           ...(opts.noPhoto ? {} : {
             "9": { type: "control_fileupload", text: "Passport Cover Page Photo", order: "9",
                    answer: ["https://www.jotform.com/uploads/passport.jpg"] }
@@ -225,6 +230,8 @@ function stubFetch(opts = {}) {
       const payload = opts.visionReply || {
         readable: true, surname: "SMITH", given_names: "JONATHAN MICHAEL",
         document_number: opts.docNumber === undefined ? "LA123456" : opts.docNumber,
+        date_of_birth: opts.docDob === undefined ? "2008-03-15" : opts.docDob,
+        expiry_date: opts.docExpiry === undefined ? "2030-06-01" : opts.docExpiry,
         source: "mrz", reason: "",
       };
       return jsonRes({ content: [{ type: "text", text: JSON.stringify(payload) }] });
@@ -409,6 +416,95 @@ test("the number read off the image is never written to HubSpot", async () => {
   const written = JSON.stringify(sent.patch);
   assert.ok(!written.includes("LA999999"), "the passport number reached the CRM");
   assert.ok(!written.includes("LA123456"), "the form's number reached the CRM");
+});
+
+// --- 3c. dates ---------------------------------------------------------------
+
+test("an ISO date parses to exactly one reading", () => {
+  assert.deepEqual(parseDateCandidates("2008-03-15"), ["2008-03-15"]);
+});
+
+test("a day over 12 is unambiguous", () => {
+  assert.deepEqual(parseDateCandidates("15/03/2008"), ["2008-03-15"]);
+  assert.deepEqual(parseDateCandidates("03/15/2008"), ["2008-03-15"]);
+});
+
+test("a date that could be read either way keeps both readings", () => {
+  // 03/04/2008 is 3 April or 4 March depending on who typed it. Guessing
+  // would either clear a wrong record or flag a right one.
+  assert.deepEqual(parseDateCandidates("03/04/2008"), ["2008-04-03", "2008-03-04"]);
+});
+
+test("written-out months parse", () => {
+  assert.deepEqual(parseDateCandidates("15 Mar 2008"), ["2008-03-15"]);
+  assert.deepEqual(parseDateCandidates("March 15, 2008"), ["2008-03-15"]);
+});
+
+test("nonsense parses to nothing rather than a wrong date", () => {
+  assert.deepEqual(parseDateCandidates("sometime in 2008"), []);
+  assert.deepEqual(parseDateCandidates("32/01/2008"), []);
+  assert.deepEqual(parseDateCandidates(""), []);
+});
+
+test("dates that agree are a match", () => {
+  assert.equal(compareDates("2008-03-15", "2008-03-15").verdict, DATE_VERDICT.MATCH);
+  assert.equal(compareDates("15/03/2008", "2008-03-15").verdict, DATE_VERDICT.MATCH);
+});
+
+test("a date matching only on the second reading is flagged ambiguous, not matched", () => {
+  // Form says 03/04/2008, passport says 4 March. Day-first reading (3 April)
+  // doesn't match, month-first does — somebody should confirm which was meant.
+  assert.equal(compareDates("03/04/2008", "2008-03-04").verdict, DATE_VERDICT.AMBIGUOUS);
+  // And the other way round it is a plain match, since day-first leads.
+  assert.equal(compareDates("03/04/2008", "2008-04-03").verdict, DATE_VERDICT.MATCH);
+});
+
+test("a genuinely different date is a mismatch", () => {
+  assert.equal(compareDates("2008-03-15", "2008-03-16").verdict, DATE_VERDICT.MISMATCH);
+  assert.equal(compareDates("03/04/2008", "2009-12-25").verdict, DATE_VERDICT.MISMATCH);
+});
+
+test("a missing date on either side is unknown", () => {
+  assert.equal(compareDates("", "2008-03-15").verdict, DATE_VERDICT.UNKNOWN);
+  assert.equal(compareDates("2008-03-15", "").verdict, DATE_VERDICT.UNKNOWN);
+});
+
+test("reading compares both dates against the form", async () => {
+  stubFetch({ docDob: "2008-03-16", docExpiry: "2030-06-01" });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.formDob, "2008-03-15");
+  assert.equal(body.passportDob, "2008-03-16");
+  assert.equal(body.dobVerdict, DATE_VERDICT.MISMATCH);
+  assert.equal(body.expiryVerdict, DATE_VERDICT.MATCH);
+  assert.equal(sent.patch[PASSPORT_PROPS.ocrDob], DATE_VERDICT.MISMATCH);
+  assert.equal(sent.patch[PASSPORT_PROPS.ocrExpiry], DATE_VERDICT.MATCH);
+});
+
+test("a date the model couldn't read confidently is dropped, not guessed", async () => {
+  stubFetch({ docDob: "15 March 2008" });   // not the ISO form we asked for
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.passportDob, "");
+  assert.equal(body.dobVerdict, DATE_VERDICT.UNKNOWN);
+});
+
+test("the dates read off the image are never written to HubSpot", async () => {
+  stubFetch({ docDob: "2008-03-16", docExpiry: "2031-12-25" });
+  await callRead("leader@trip.example", { email: "mia@example.com" });
+  const written = JSON.stringify(sent.patch);
+  assert.ok(!written.includes("2008-03-16"), "a date of birth reached the CRM");
+  assert.ok(!written.includes("2031-12-25"), "an expiry date reached the CRM");
+});
+
+test("an expiry mismatch alone still asks for attention", () => {
+  const state = shapePassportState({
+    [PASSPORT_PROPS.ocrStatus]: "ok",
+    [PASSPORT_PROPS.ocrFirst]: "Jon",
+    [PASSPORT_PROPS.ocrLast]: "Smith",
+    [PASSPORT_PROPS.ocrNumber]: NUMBER_VERDICT.MATCH,
+    [PASSPORT_PROPS.ocrExpiry]: DATE_VERDICT.MISMATCH,
+  }, { recordedFirst: "Jon", recordedLast: "Smith" });
+  assert.equal(state.nameMatches, true);
+  assert.equal(needsPassportAttention(state), true);
 });
 
 // --- 4. the ops tick --------------------------------------------------------

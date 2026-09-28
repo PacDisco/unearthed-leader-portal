@@ -1,8 +1,8 @@
 # Passport name checking — setup
 
-The portal reads the name and passport number off each person's uploaded
-passport photo, compares them to what's on record, and flags the ones that
-disagree. **It never changes
+The portal reads the name, passport number, date of birth and expiry date off
+each person's uploaded passport photo, compares them to what's on record, and
+flags the ones that disagree. **It never changes
 a name on its own** — a leader applies the passport name with one click, and
 ops can mark a passport as checked by hand.
 
@@ -35,6 +35,8 @@ properties → Create property). Internal names must match exactly.
 | `passport_ocr_last` | Single-line text | the read |
 | `passport_ocr_status` | Single-line text | the read — `ok` / `no_photo` / `unreadable` / `error` |
 | `passport_ocr_number_match` | Single-line text | the read — `match` / `mismatch` / `confusable` / `unknown` |
+| `passport_ocr_dob_match` | Single-line text | the read — `match` / `mismatch` / `ambiguous` / `unknown` |
+| `passport_ocr_expiry_match` | Single-line text | the read — as above |
 | `passport_ocr_hash` | Single-line text | the read — which photo it read |
 | `passport_ocr_read_at` | Single-line text | the read — ISO timestamp |
 | `passport_checked` | Single checkbox | ops |
@@ -50,13 +52,13 @@ and makes an ordinary ISO write fail.
 Only the **name** is kept. The date of birth and the MRZ line are used during
 the read and dropped.
 
-The passport **number** is compared — a transposed number fails a booking just
-as surely as a wrong name — but only the *verdict* is cached, never the number.
-The number read off the image is returned to the leader who triggered that read
-and then forgotten. So a leader looking at a cached mismatch sees "does not
-match the passport — re-read to see it", and RE-READ shows both numbers again.
-One extra API call on the rare mismatch is the price of keeping passport
-numbers out of the CRM.
+The passport **number**, **date of birth** and **expiry date** are compared —
+any of the three fails a booking just as surely as a wrong name — but only the
+*verdicts* are cached, never the values. What was read off the image is
+returned to the leader who triggered that read and then forgotten. So a leader
+looking at a cached problem sees "differs — re-read to see it", and RE-READ
+shows both values again. One extra API call on the rare mismatch is the price
+of keeping passport numbers and dates of birth out of the CRM.
 
 ## 3. What each person sees
 
@@ -66,11 +68,14 @@ and passport number don't match*, *passport number needs a look*, *no passport
 photo*, *needs a manual check*, or *passport checked*. Opening a card shows the
 names and the numbers side by side, with:
 
-- **USE THE PASSPORT NAME** — writes the name to the HubSpot contact and the
-  application form's name question together.
-- **USE THE PASSPORT NUMBER** — writes the number to the application form's
-  passport-number question, then re-reads so the cached verdict catches up.
-  Only offered on a fresh read, since the number isn't stored.
+Opening a card shows a four-row comparison — name, passport number, date of
+birth, expiry — with what's on record beside what the document says, a tick on
+the rows that agree, and a **USE THIS** button on the rows that don't. Applying
+writes to the right place automatically: the name goes to both the HubSpot
+contact and the form's name question; the number and the dates go to the form.
+Dates are written day / month / year rather than as one string, so the stored
+shape survives. Each apply re-reads afterwards so the cached verdict catches
+up. Apply is only offered on a fresh read, since the values aren't stored.
 
 **Ops / admin** — everything above, plus the **Passport details checked
 manually** tick. Ticking it records who and when, and settles the mismatch flag
@@ -95,6 +100,27 @@ mismatch — the contact only holds first and last. A shortened first name
 check-in.
 
 An unread passport is never shown as a mismatch, only as unchecked.
+
+### Dates
+
+Compared after parsing both sides. The trap is a numeric date like
+`03/04/2008`, which is 3 April or 4 March depending on who typed it. Rather
+than guess — and risk clearing a wrong record or flagging a right one — both
+readings are kept:
+
+- **match** — the day-first reading agrees with the passport
+- **ambiguous** — only the month-first reading agrees; somebody should confirm
+  which was meant
+- **mismatch** — neither reading agrees
+
+A date written unambiguously (`2008-03-15`, `15/03/2008`, `15 Mar 2008`) has
+only one reading and compares directly. Anything unparseable is `unknown`, not
+a mismatch.
+
+The read is asked for dates as `YYYY-MM-DD` and takes the century from the
+printed page's four-digit year, rather than guessing it from the MRZ's
+two-digit one. A date that doesn't come back in exactly that form is discarded
+rather than interpreted.
 
 ### Numbers
 

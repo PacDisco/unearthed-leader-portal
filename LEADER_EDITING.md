@@ -34,12 +34,13 @@ Read-only by design, because a flat write corrupts the stored shape or breaks
 the record's identity:
 
 - `control_email` — the key submissions are matched on
-- `control_datetime` — structured value
 - `control_fileupload` — passport scans and portraits
 
-Name questions (`control_fullname`) ARE editable, one subfield at a time, the
-same way addresses are — a booking has to match the passport, so the name has
-to be correctable. See PASSPORT_SETUP.md.
+Name (`control_fullname`) and date (`control_datetime`) questions ARE editable,
+one subfield at a time, the same way addresses are — a booking has to match the
+passport, so the name, the date of birth and the expiry have to be correctable.
+A flat write to either is still refused; only subfield writes are accepted, and
+that is what keeps the stored shape intact. See PASSPORT_SETUP.md.
 
 These render in the form greyed out with a READ-ONLY note. `lib/jotform.js`
 refuses them independently of the UI.

@@ -65,10 +65,10 @@ export function isSensitiveLabel(label = "") {
 // submission[QID_addr_line1]=..., etc.
 //
 // Deliberately READ-ONLY: email — it's the key we match submissions on, so
-// editing it would orphan the submission from its contact. Dates and file
-// uploads stay read-only too, so a flat write can't corrupt structured data.
-// Names are NOT read-only: they're edited through the composite path below,
-// one subfield at a time.
+// editing it would orphan the submission from its contact — and file uploads.
+// Names and dates are NOT read-only: they're edited through the composite
+// path below, one subfield at a time, which is what keeps a flat write from
+// corrupting the stored shape.
 // ---------------------------------------------------------------------------
 const EDITABLE_TYPES = new Set([
   "control_textbox",
@@ -104,6 +104,15 @@ const COMPOSITE_SUBFIELDS = {
     { key: "last",   label: "Last Name" },
     { key: "suffix", label: "Suffix" },
   ],
+  // Dates are composite for the same reason names are: a date of birth or a
+  // passport expiry has to be correctable against the document, and writing
+  // the parts is how that happens without corrupting the stored shape. Time
+  // subfields are deliberately absent — these are date questions.
+  control_datetime: [
+    { key: "day",   label: "Day" },
+    { key: "month", label: "Month" },
+    { key: "year",  label: "Year" },
+  ],
 };
 
 // Jotform only returns the subfields a form actually asks for. Rendering an
@@ -113,6 +122,7 @@ const COMPOSITE_SUBFIELDS = {
 const ALWAYS_SHOWN_SUBKEYS = new Set([
   "addr_line1", "addr_line2", "city", "state", "postal", "country",
   "first", "middle", "last",
+  "day", "month", "year",
 ]);
 
 function subfieldsFor(type) {

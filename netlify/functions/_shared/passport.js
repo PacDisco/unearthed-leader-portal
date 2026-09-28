@@ -38,6 +38,8 @@ export const PASSPORT_PROPS = {
   // VERDICT ONLY — "match" / "mismatch" / "confusable" / "unknown". The
   // passport number itself is deliberately never stored here; see below.
   ocrNumber:  "passport_ocr_number_match",
+  ocrDob:     "passport_ocr_dob_match",
+  ocrExpiry:  "passport_ocr_expiry_match",
   ocrHash:    "passport_ocr_hash",      // single-line text — which photo was read
   ocrReadAt:  "passport_ocr_read_at",   // single-line text — ISO timestamp
   // Filled by the ops checkbox.
@@ -155,6 +157,104 @@ export const NUMBER_VERDICT = {
   UNKNOWN: "unknown",        // one side missing — never treated as a problem
 };
 
+export const DATE_VERDICT = {
+  MATCH: "match",
+  MISMATCH: "mismatch",
+  // The form's date is written ambiguously (e.g. 03/04/2008) and only matches
+  // the passport under the day-second reading. Not wrong, but somebody should
+  // confirm which way round it was meant.
+  AMBIGUOUS: "ambiguous",
+  UNKNOWN: "unknown",
+};
+
+// Verdicts that mean "a person should look at this".
+export function verdictNeedsAttention(v) {
+  return v === "mismatch" || v === "confusable" || v === "ambiguous";
+}
+
+// ---------------------------------------------------------------------------
+// Dates
+// ---------------------------------------------------------------------------
+
+const MONTHS = {
+  JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
+  JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+};
+
+function iso(y, m, d) {
+  if (!y || !m || !d) return null;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+// Every date the given text could plausibly mean, most likely first.
+//
+// The hard case is a numeric date like 03/04/2008: day-first and month-first
+// are both defensible and we cannot tell from the string alone. Rather than
+// pick one and risk reporting a correct record as wrong (or worse, a wrong one
+// as right), both readings are returned and the comparison reports AMBIGUOUS
+// when only the second one matches. Day-first leads because that is how the
+// form's own audience writes dates.
+export function parseDateCandidates(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return [];
+
+  // Jotform's own datetime answers arrive as YYYY-MM-DD — unambiguous.
+  let m = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) {
+    const v = iso(+m[1], +m[2], +m[3]);
+    return v ? [v] : [];
+  }
+
+  // "15 Mar 2008" / "15 March 2008" / "Mar 15 2008"
+  m = raw.match(/^(\d{1,2})[\s-]*([A-Za-z]{3,})[\s-]*(\d{4})$/);
+  if (m) {
+    const mo = MONTHS[m[2].slice(0, 3).toUpperCase()];
+    const v = iso(+m[3], mo, +m[1]);
+    return v ? [v] : [];
+  }
+  m = raw.match(/^([A-Za-z]{3,})[\s-]*(\d{1,2}),?[\s-]*(\d{4})$/);
+  if (m) {
+    const mo = MONTHS[m[1].slice(0, 3).toUpperCase()];
+    const v = iso(+m[3], mo, +m[2]);
+    return v ? [v] : [];
+  }
+
+  // Numeric with a 4-digit year last: the ambiguous family.
+  m = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (m) {
+    const a = +m[1], b = +m[2], y = +m[3];
+    const dayFirst = iso(y, b, a);
+    const monthFirst = iso(y, a, b);
+    if (a > 12 && dayFirst) return [dayFirst];          // only day-first is possible
+    if (b > 12 && monthFirst) return [monthFirst];      // only month-first is possible
+    const out = [];
+    if (dayFirst) out.push(dayFirst);
+    if (monthFirst && monthFirst !== dayFirst) out.push(monthFirst);
+    return out;
+  }
+
+  return [];
+}
+
+// Compare a date on the form against the date read off the passport.
+// `passportDate` is expected as YYYY-MM-DD — the read asks for it that way, so
+// the century is resolved from the printed page rather than guessed from a
+// two-digit MRZ year.
+export function compareDates(formValue, passportDate) {
+  const want = parseDateCandidates(passportDate);
+  const got = parseDateCandidates(formValue);
+
+  if (want.length === 0 || got.length === 0) {
+    return { comparable: false, verdict: DATE_VERDICT.UNKNOWN };
+  }
+
+  const target = want[0];
+  if (got[0] === target) return { comparable: true, verdict: DATE_VERDICT.MATCH };
+  if (got.includes(target)) return { comparable: true, verdict: DATE_VERDICT.AMBIGUOUS };
+  return { comparable: true, verdict: DATE_VERDICT.MISMATCH };
+}
+
 // A display name in passport order, for showing next to the recorded name.
 export function formatPassportName(first, last) {
   const f = String(first || "").trim();
@@ -180,6 +280,8 @@ export function shapePassportState(props = {}, { recordedFirst, recordedLast } =
 
   const comparison = compareNames({ recordedFirst, recordedLast, passportFirst, passportLast });
   const numberVerdict = (props[PASSPORT_PROPS.ocrNumber] || "").trim() || NUMBER_VERDICT.UNKNOWN;
+  const dobVerdict = (props[PASSPORT_PROPS.ocrDob] || "").trim() || DATE_VERDICT.UNKNOWN;
+  const expiryVerdict = (props[PASSPORT_PROPS.ocrExpiry] || "").trim() || DATE_VERDICT.UNKNOWN;
 
   return {
     status: status || null,              // null = never read
@@ -202,6 +304,8 @@ export function shapePassportState(props = {}, { recordedFirst, recordedLast } =
     numberMatches: verified
       ? true
       : (numberVerdict === NUMBER_VERDICT.UNKNOWN ? null : numberVerdict === NUMBER_VERDICT.MATCH),
+    dobVerdict: verified ? DATE_VERDICT.MATCH : dobVerdict,
+    expiryVerdict: verified ? DATE_VERDICT.MATCH : expiryVerdict,
   };
 }
 
@@ -210,16 +314,19 @@ export function shapePassportState(props = {}, { recordedFirst, recordedLast } =
 export function needsPassportAttention(state) {
   if (!state || state.verified) return false;
   return state.nameMatches === false
-    || state.numberVerdict === NUMBER_VERDICT.MISMATCH
-    || state.numberVerdict === NUMBER_VERDICT.CONFUSABLE;
+    || verdictNeedsAttention(state.numberVerdict)
+    || verdictNeedsAttention(state.dobVerdict)
+    || verdictNeedsAttention(state.expiryVerdict);
 }
 
 // PATCH body for storing a read result.
-export function buildOcrPatch({ status, first, last, hash, numberVerdict }) {
+export function buildOcrPatch({ status, first, last, hash, numberVerdict, dobVerdict, expiryVerdict }) {
   return {
     [PASSPORT_PROPS.ocrStatus]: status,
-    // Verdict only — never the number itself.
+    // Verdicts only — never the number or the dates themselves.
     [PASSPORT_PROPS.ocrNumber]: numberVerdict || NUMBER_VERDICT.UNKNOWN,
+    [PASSPORT_PROPS.ocrDob]: dobVerdict || DATE_VERDICT.UNKNOWN,
+    [PASSPORT_PROPS.ocrExpiry]: expiryVerdict || DATE_VERDICT.UNKNOWN,
     [PASSPORT_PROPS.ocrFirst]: first || "",
     [PASSPORT_PROPS.ocrLast]: last || "",
     [PASSPORT_PROPS.ocrName]: formatPassportName(first, last),
