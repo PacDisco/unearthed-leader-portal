@@ -9,7 +9,12 @@
 // the contact (email, name, owner, lifecycle stage, association labels…) is
 // out of reach: email in particular is the key submissions are matched on, so
 // letting it be edited here would silently orphan someone's application.
-export const EDITABLE_CONTACT_PROPERTIES = ["phone", "ue_student_status", "notes__c"];
+// firstname/lastname are editable because of the passport-name problem: a
+// booking has to match the passport, and the roster card, the CRM and the
+// group export's passenger sheet all read the name from here.
+export const EDITABLE_CONTACT_PROPERTIES = [
+  "firstname", "lastname", "phone", "ue_student_status", "notes__c",
+];
 
 // Of those, the ones that only make sense on a student. `ue_student_status`
 // and `notes__c` are the school's per-student tracking fields shown on the
@@ -19,6 +24,8 @@ export const STUDENT_ONLY_CONTACT_PROPERTIES = ["ue_student_status", "notes__c"]
 
 // Human-readable names for the audit note.
 export const CONTACT_PROPERTY_LABELS = {
+  firstname: "First name",
+  lastname: "Last name",
   phone: "Phone",
   ue_student_status: "Student status",
   notes__c: "Notes",

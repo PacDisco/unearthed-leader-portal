@@ -397,14 +397,16 @@ test("the edit form gives the trip's leader the real values to edit", async () =
   const passport = body.fields.find(f => f.label === "Passport Number");
   assert.equal(passport.value, "LA123456");
   assert.equal(body.isStudent, true);
-  assert.deepEqual(body.editableContactFields, ["phone", "ue_student_status", "notes__c"]);
+  // Name is editable because of the passport-matching problem; email is not.
+  assert.deepEqual(body.editableContactFields,
+    ["firstname", "lastname", "phone", "ue_student_status", "notes__c"]);
 });
 
 test("the edit form offers a school leader phone only", async () => {
   stubFetch();
   const { body } = await callForm("leader@trip.example", "teacher@school.example");
   assert.equal(body.isStudent, false);
-  assert.deepEqual(body.editableContactFields, ["phone"]);
+  assert.deepEqual(body.editableContactFields, ["firstname", "lastname", "phone"]);
 });
 
 await run();

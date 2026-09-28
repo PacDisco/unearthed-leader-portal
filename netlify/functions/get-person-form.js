@@ -86,11 +86,11 @@ export async function handler(event) {
 }
 
 async function readContactProperties(contactId, isStudent) {
-  const empty = { phone: "", ue_student_status: "", notes__c: "" };
+  const empty = { firstname: "", lastname: "", phone: "", ue_student_status: "", notes__c: "" };
   try {
     const props = isStudent
-      ? ["phone", "ue_student_status", "notes__c"]
-      : ["phone"];
+      ? ["firstname", "lastname", "phone", "ue_student_status", "notes__c"]
+      : ["firstname", "lastname", "phone"];
     const res = await fetch(
       `https://api.hubapi.com/crm/v3/objects/contacts/${encodeURIComponent(contactId)}` +
       `?properties=${encodeURIComponent(props.join(","))}`,
@@ -99,6 +99,8 @@ async function readContactProperties(contactId, isStudent) {
     if (!res.ok) return empty;
     const data = await res.json();
     return {
+      firstname: data?.properties?.firstname || "",
+      lastname: data?.properties?.lastname || "",
       phone: data?.properties?.phone || "",
       ue_student_status: data?.properties?.ue_student_status || "",
       notes__c: data?.properties?.notes__c || "",

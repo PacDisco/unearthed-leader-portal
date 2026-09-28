@@ -14,6 +14,7 @@ import { authenticate, tokenFromEvent } from "./_shared/auth.js";
 import { assertPortalAccess } from "./_shared/portal-access.js";
 import { collectFileIds, resolveFileIds, resolvePhotoUrl } from "./_shared/hubspot-files.js";
 import { APPLICATION_FORM_IDS } from "./_shared/application-forms.js";
+import { ALL_PASSPORT_PROPS, shapePassportState } from "./_shared/passport.js";
 
 export async function handler(event) {
   try {
@@ -100,7 +101,12 @@ export async function handler(event) {
             headers,
             body: JSON.stringify({
               inputs: studentIds.map(id => ({ id: String(id) })),
-              properties: ["firstname", "lastname", "email", "phone", "ue_student_status", "notes__c"]
+              properties: [
+                "firstname", "lastname", "email", "phone", "ue_student_status", "notes__c",
+                // Cached passport-check state, so the roster card can show a
+                // name-mismatch or verified badge without a read per card.
+                ...ALL_PASSPORT_PROPS
+              ]
             })
           }
         )
@@ -130,7 +136,10 @@ export async function handler(event) {
             headers,
             body: JSON.stringify({
               inputs: teacherIds.map(id => ({ id: String(id) })),
-              properties: ["firstname", "lastname", "email", "phone", "expedition_leader_photo"]
+              properties: [
+                "firstname", "lastname", "email", "phone", "expedition_leader_photo",
+                ...ALL_PASSPORT_PROPS
+              ]
             })
           }
         ).then(async (r) => {
@@ -175,7 +184,11 @@ export async function handler(event) {
           totalPaid: paymentInfo.totalPaid,
           payments: paymentInfo.payments,
           dealAmount: paymentInfo.dealAmount,
-          parents
+          parents,
+          passport: shapePassportState(student.properties, {
+            recordedFirst: student.properties.firstname || "",
+            recordedLast: student.properties.lastname || "",
+          })
         };
       })
     );
@@ -240,7 +253,11 @@ export async function handler(event) {
         email,
         phone: t.properties.phone || "",
         role: "Teacher",
-        portraitUrl
+        portraitUrl,
+        passport: shapePassportState(t.properties, {
+          recordedFirst: t.properties.firstname || "",
+          recordedLast: t.properties.lastname || "",
+        })
       };
     });
 

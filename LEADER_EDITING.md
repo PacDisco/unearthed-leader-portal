@@ -34,14 +34,19 @@ Read-only by design, because a flat write corrupts the stored shape or breaks
 the record's identity:
 
 - `control_email` — the key submissions are matched on
-- `control_fullname`, `control_datetime` — structured values
+- `control_datetime` — structured value
 - `control_fileupload` — passport scans and portraits
+
+Name questions (`control_fullname`) ARE editable, one subfield at a time, the
+same way addresses are — a booking has to match the passport, so the name has
+to be correctable. See PASSPORT_SETUP.md.
 
 These render in the form greyed out with a READ-ONLY note. `lib/jotform.js`
 refuses them independently of the UI.
 
 **HubSpot contact properties** — the whitelist lives in `_shared/roster-edit.js`:
 
+- `firstname`, `lastname` — anyone on the trip (the passport-matching problem)
 - `phone` — anyone on the trip
 - `ue_student_status`, `notes__c` — students only (they're the school's
   per-student tracking fields; on a staff contact nothing would read them)

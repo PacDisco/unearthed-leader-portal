@@ -64,9 +64,11 @@ export function isSensitiveLabel(label = "") {
 // Address is a composite type, edited subfield-by-subfield and written as
 // submission[QID_addr_line1]=..., etc.
 //
-// Deliberately READ-ONLY: email (it's the key we match submissions on) and
-// full name (control_fullname). Other composites (date) and file uploads also
-// stay read-only so a flat write can't corrupt structured data.
+// Deliberately READ-ONLY: email — it's the key we match submissions on, so
+// editing it would orphan the submission from its contact. Dates and file
+// uploads stay read-only too, so a flat write can't corrupt structured data.
+// Names are NOT read-only: they're edited through the composite path below,
+// one subfield at a time.
 // ---------------------------------------------------------------------------
 const EDITABLE_TYPES = new Set([
   "control_textbox",
@@ -78,23 +80,50 @@ const EDITABLE_TYPES = new Set([
   "control_autocomplete",
 ]);
 
-// Composite address subfields, in display order. Keys are Jotform's standard
-// address subfield names; only these keys are ever accepted on update.
-const ADDRESS_SUBFIELDS = [
-  { key: "addr_line1", label: "Street Address" },
-  { key: "addr_line2", label: "Street Address Line 2" },
-  { key: "city",       label: "City" },
-  { key: "state",      label: "State / Province" },
-  { key: "postal",     label: "Postal / Zip Code" },
-  { key: "country",    label: "Country" },
-];
-const ADDRESS_SUBKEYS = new Set(ADDRESS_SUBFIELDS.map(s => s.key));
+// Composite subfields, in display order, per composite type. Keys are
+// Jotform's standard subfield names; only these keys are ever accepted on
+// update, so a composite can never be written with an arbitrary key.
+//
+// control_fullname is editable BECAUSE of the passport-name problem: the name
+// on a booking has to match the passport, and the only way to correct it is to
+// write the name question's parts. It is still never written as one flat
+// string — that's what would corrupt the stored shape.
+const COMPOSITE_SUBFIELDS = {
+  control_address: [
+    { key: "addr_line1", label: "Street Address" },
+    { key: "addr_line2", label: "Street Address Line 2" },
+    { key: "city",       label: "City" },
+    { key: "state",      label: "State / Province" },
+    { key: "postal",     label: "Postal / Zip Code" },
+    { key: "country",    label: "Country" },
+  ],
+  control_fullname: [
+    { key: "prefix", label: "Title" },
+    { key: "first",  label: "First Name" },
+    { key: "middle", label: "Middle Name(s)" },
+    { key: "last",   label: "Last Name" },
+    { key: "suffix", label: "Suffix" },
+  ],
+};
+
+// Jotform only returns the subfields a form actually asks for. Rendering an
+// input for a subfield the form doesn't have would invite a write that goes
+// nowhere, so the optional ones are only shown when the submission carries
+// them (or the form clearly uses them).
+const ALWAYS_SHOWN_SUBKEYS = new Set([
+  "addr_line1", "addr_line2", "city", "state", "postal", "country",
+  "first", "middle", "last",
+]);
+
+function subfieldsFor(type) {
+  return COMPOSITE_SUBFIELDS[String(type).toLowerCase()] || null;
+}
 
 function isEditableType(type = "") {
   return EDITABLE_TYPES.has(String(type).toLowerCase());
 }
 function isEditableComposite(type = "") {
-  return String(type).toLowerCase() === "control_address";
+  return !!subfieldsFor(type);
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +255,9 @@ export function buildClientFields(submission, options = {}) {
     // somehow flagged sensitive, preserving the no-leak guarantee.
     if (isEditableComposite(type)) {
       const v = (a.answer && typeof a.answer === "object") ? a.answer : {};
-      const subfields = ADDRESS_SUBFIELDS.map(sf => ({
+      const subfields = subfieldsFor(type)
+        .filter(sf => ALWAYS_SHOWN_SUBKEYS.has(sf.key) || v[sf.key] != null)
+        .map(sf => ({
         key: `${a.qid}_${sf.key}`,        // composite key sent back on update
         label: sf.label,
         value: withhold ? "" : (v[sf.key] != null ? String(v[sf.key]) : ""),
@@ -294,12 +325,14 @@ export function buildUpdatePayload(submission, changes, options = {}) {
         skipped.push({ qid: key, reason: `composite not editable: ${type}` });
         continue;
       }
-      if (!ADDRESS_SUBKEYS.has(sub)) {
-        skipped.push({ qid: key, reason: `unknown address subfield: ${sub}` });
+      const allowed = subfieldsFor(type);
+      if (!allowed.some(sf => sf.key === sub)) {
+        skipped.push({ qid: key, reason: `unknown ${type} subfield: ${sub}` });
         continue;
       }
-      // Address subfields aren't treated as sensitive; write as-is
-      // (including blanks, so a user can clear e.g. address line 2).
+      // Composite subfields aren't treated as sensitive; write as-is
+      // (including blanks, so e.g. a wrongly-entered middle name can be
+      // cleared to match a passport that has none).
       fields[key] = value;
       continue;
     }
@@ -330,7 +363,9 @@ export function buildUpdatePayload(submission, changes, options = {}) {
 // "<field label> — City".
 export function describeFields(submission, fields) {
   const answers = submission?.answers || {};
-  const subLabel = Object.fromEntries(ADDRESS_SUBFIELDS.map(s => [s.key, s.label]));
+  const subLabel = Object.fromEntries(
+    Object.values(COMPOSITE_SUBFIELDS).flat().map(s => [s.key, s.label])
+  );
 
   return Object.entries(fields || {}).map(([key, value]) => {
     const us = key.indexOf("_");

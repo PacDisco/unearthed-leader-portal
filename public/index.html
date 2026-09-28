@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <!-- Must be the first thing in <head>: the page contains non-ASCII
+       characters and renders as mojibake if it is ever served without a
+       charset header. -->
+  <meta charset="utf-8">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#2d6b74">
   <meta name="mobile-web-app-capable" content="yes">
@@ -383,6 +387,90 @@
     @media (max-width: 900px), (pointer: coarse) {
       #qrCard { display: none !important; }
     }
+
+    /* PASSPORT CHECK — badge on a roster card, panel in the modal. */
+    .passport-badge {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 1px;
+      font-weight: 600;
+      line-height: 1.5;
+      padding: 7px 9px;
+      margin: 10px 0 2px;
+      border-left: 3px solid #b0a99a;
+      background: #f3f1e9;
+      color: #6b6b6b;
+    }
+
+    .passport-badge--mismatch { border-left-color: #d98b2b; background: #fbf1e3; color: #8a5414; }
+    .passport-badge--missing  { border-left-color: #b0a99a; }
+    .passport-badge--checked  { border-left-color: #5b8f6a; background: #eef4ee; color: #3f6b4c; }
+    .passport-badge-name { display: block; font-weight: 400; letter-spacing: 0.5px; margin-top: 3px; }
+
+    .passport-panel {
+      border: 1px solid #e2decf;
+      border-left: 3px solid #59a1aa;
+      background: #f9f8f2;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+    }
+
+    .passport-panel--mismatch { border-left-color: #d98b2b; background: #fbf1e3; }
+    .passport-panel--checked  { border-left-color: #5b8f6a; background: #eef4ee; }
+
+    .passport-panel-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #999;
+      margin-bottom: 10px;
+    }
+
+    .passport-name-row { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 12px; }
+    .passport-name-col { min-width: 150px; }
+
+    .passport-name-col-label {
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: #999;
+      margin-bottom: 3px;
+    }
+
+    .passport-name-col-value { font-size: 15px; color: #2b2b2b; }
+    .passport-name-col-value.is-empty { color: #b0a99a; font-style: italic; font-size: 13px; }
+
+    .passport-panel-message { font-size: 12px; color: #6b6b6b; line-height: 1.5; margin-bottom: 10px; }
+    .passport-panel-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+    .passport-btn {
+      font-family: inherit;
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      padding: 9px 14px;
+      cursor: pointer;
+      border: 1px solid #2d6b74;
+      background: #2d6b74;
+      color: #fff;
+    }
+
+    .passport-btn--secondary { background: transparent; color: #2d6b74; }
+    .passport-btn:disabled { opacity: 0.55; cursor: default; }
+
+    .passport-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e2decf;
+      font-size: 12px;
+      color: #4a4a4a;
+      cursor: pointer;
+    }
+
+    .passport-check input { margin-top: 2px; width: 16px; height: 16px; flex: 0 0 auto; cursor: pointer; }
+    .passport-check-meta { display: block; font-size: 11px; color: #999; margin-top: 2px; }
 
     /* ROSTER SECTION HEADINGS (Expedition Leader tab)
        When school leaders are listed above the students, each grid gets a
@@ -4122,6 +4210,56 @@
     });
   }
 
+  // ----- Passport check -------------------------------------------------
+  // The name on a booking has to match the passport. Each person's passport
+  // photo is read once (cached on their contact) and compared to the name on
+  // record; the badge below is how a leader spots the ones that disagree
+  // without opening every card.
+  //
+  // Candidate labels for the application form's passport-name question. Kept
+  // in step with FIELD_MAP.travel.passportName in lib/group-info.js — that's
+  // the same question the group export reads the middle name from.
+  const PASSPORT_NAME_LABELS = [
+    "Name (as noted in your passport)",
+    "Name as noted in your passport",
+    "Full Name",
+    "Name",
+    "Student Name",
+  ];
+
+  function normaliseLabel(s) {
+    return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  // The card badge. Returns "" when there's nothing worth saying, so a clean
+  // roster doesn't turn into a wall of notices.
+  function renderPassportBadge(passport) {
+    if (!passport) return "";
+
+    if (passport.verified) {
+      const who = passport.verifiedBy ? ` — ${passport.verifiedBy}` : "";
+      return `<div class="passport-badge passport-badge--checked">PASSPORT CHECKED${attrEsc(who)}</div>`;
+    }
+
+    if (passport.nameMatches === false) {
+      return `<div class="passport-badge passport-badge--mismatch">
+          NAME DOESN'T MATCH PASSPORT
+          <span class="passport-badge-name">Passport: ${attrEsc(passport.passportName || "—")}</span>
+        </div>`;
+    }
+
+    if (passport.status === "no_photo") {
+      return `<div class="passport-badge passport-badge--missing">NO PASSPORT PHOTO</div>`;
+    }
+    if (passport.status === "unreadable" || passport.status === "error") {
+      return `<div class="passport-badge passport-badge--missing">PASSPORT NEEDS A MANUAL CHECK</div>`;
+    }
+    if (!passport.read) {
+      return `<div class="passport-badge passport-badge--missing">PASSPORT NOT CHECKED YET</div>`;
+    }
+    return "";
+  }
+
   // One school-leader card for the Expedition Leader tab roster.
   //
   // Deliberately the same .student-card shell as a student (plus a --staff
@@ -4172,6 +4310,7 @@
         <div class="student-card-role">SCHOOL LEADER</div>
         <h3>${attrEsc(name)}</h3>
         ${contactInfoHtml}
+        ${renderPassportBadge(teacher.passport)}
         ${medicalBtn}
         ${docsBtn}
       </div>
@@ -4351,11 +4490,16 @@
           }
         }
 
+        // The passport badge is an Expedition Leader tab concern — the
+        // Teachers tab is the school's view and doesn't run the bookings.
+        const passportBadge = expandable ? renderPassportBadge(student.passport) : "";
+
         grid.innerHTML += `
           <div class="student-card">
             ${photoHtml}
             <h3>${attrEsc(student.name || "Unknown")}</h3>
             ${contactInfoHtml}
+            ${passportBadge}
             ${paymentsBlock}
             ${teacherFieldsBlock}
             <div class="parent-section">
@@ -4642,6 +4786,11 @@
       }
       const data = await res.json();
       body.innerHTML = renderFullApplicationDetails(data, !!tripLeaderOnly);
+      // Passport check sits above the medical detail on the Expedition Leader
+      // tab. Rendered after the details so a slow read never holds them up.
+      if (tripLeaderOnly && canEditRoster()) {
+        renderPassportPanel(body, __modalPerson);
+      }
     } catch (err) {
       console.error("Application modal fetch error:", err);
       body.innerHTML = `<div class="application-detail-empty">Could not load application details.<br><small style="color:#999; font-size:11px;">${attrEsc(err.message || String(err))}</small></div>`;
@@ -4654,8 +4803,279 @@
     document.body.style.overflow = "";
     __modalPerson = null;
     __editSnapshot = null;
+    __passportState = null;
     setModalEditButton(false);
     hideEditFooter();
+  }
+
+  // ----- Passport panel in the modal -------------------------------------
+  // Shown above the medical details on the Expedition Leader tab. Reads the
+  // passport the first time anyone opens a card (the result is cached on the
+  // contact, so re-opening costs nothing), then offers the name it found for
+  // the leader to apply in one click.
+  //
+  // The read NEVER writes the name by itself. OCR on a phone photo of a
+  // curved passport page is good, not perfect, and a wrong name that looks
+  // verified is worse than one that's obviously wrong — it would only surface
+  // at check-in.
+  let __passportState = null;
+
+  async function renderPassportPanel(container, person) {
+    if (!container || !person || !person.email) return;
+
+    const panel = document.createElement("div");
+    panel.id = "passportPanel";
+    panel.className = "passport-panel";
+    panel.innerHTML = `<div class="passport-panel-label">PASSPORT CHECK</div>
+      <div class="passport-panel-message">Checking the passport…</div>`;
+    container.prepend(panel);
+
+    try {
+      const res = await apiFetch("/.netlify/functions/read-passport", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: person.email }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        panel.innerHTML = `<div class="passport-panel-label">PASSPORT CHECK</div>
+          <div class="passport-panel-message">${attrEsc(data.error || `Couldn't check the passport (HTTP ${res.status}).`)}</div>
+          ${renderPassportActions(null)}`;
+        wirePassportPanel();
+        return;
+      }
+
+      __passportState = data;
+      paintPassportPanel(data, person);
+    } catch (err) {
+      console.error("Passport panel error:", err);
+      panel.innerHTML = `<div class="passport-panel-label">PASSPORT CHECK</div>
+        <div class="passport-panel-message">Couldn't check the passport: ${attrEsc(err.message || String(err))}</div>
+        ${renderPassportActions(null)}`;
+      wirePassportPanel();
+    }
+  }
+
+  function paintPassportPanel(state, person) {
+    const panel = document.getElementById("passportPanel");
+    if (!panel) return;
+
+    const recorded = (person && person.name) || "";
+    const passportName = state.passportName || "";
+    const mismatch = state.nameMatches === false;
+
+    panel.className = "passport-panel"
+      + (state.verified ? " passport-panel--checked" : (mismatch ? " passport-panel--mismatch" : ""));
+
+    let message = "";
+    if (state.status === "no_photo") {
+      message = "No passport photo has been uploaded, so the name can't be checked against one.";
+    } else if (state.status === "unreadable") {
+      message = state.message || "The name couldn't be made out on the uploaded photo — check it by hand.";
+    } else if (state.status === "error") {
+      message = state.message || "The passport couldn't be read just now.";
+    } else if (mismatch) {
+      message = "The name on record doesn't match the passport. The booking has to match the passport.";
+    } else if (state.verified) {
+      message = "Checked by hand — no further review needed.";
+    } else if (state.nameMatches === true) {
+      message = "The name on record matches the passport.";
+    }
+
+    panel.innerHTML = `
+      <div class="passport-panel-label">PASSPORT CHECK</div>
+      <div class="passport-name-row">
+        <div class="passport-name-col">
+          <div class="passport-name-col-label">NAME ON RECORD</div>
+          <div class="passport-name-col-value">${attrEsc(recorded || "—")}</div>
+        </div>
+        <div class="passport-name-col">
+          <div class="passport-name-col-label">NAME ON PASSPORT</div>
+          <div class="passport-name-col-value${passportName ? "" : " is-empty"}">${attrEsc(passportName || "not read")}</div>
+        </div>
+      </div>
+      ${message ? `<div class="passport-panel-message">${attrEsc(message)}</div>` : ""}
+      ${renderPassportActions(state)}
+      ${renderPassportCheckbox(state)}
+    `;
+    wirePassportPanel();
+  }
+
+  function renderPassportActions(state) {
+    const canApply = !!(state && state.status === "ok" && state.nameMatches === false && state.passportFirst);
+    return `<div class="passport-panel-actions">
+        ${canApply ? `<button class="passport-btn" type="button" id="passportApplyBtn">USE THE PASSPORT NAME</button>` : ""}
+        <button class="passport-btn passport-btn--secondary" type="button" id="passportRereadBtn">RE-READ PASSPORT</button>
+      </div>`;
+  }
+
+  // Ops-only. Leaders see the tick and who set it, but only an admin can set
+  // it — the tick means "the office has verified this", and the server
+  // enforces that independently.
+  function renderPassportCheckbox(state) {
+    if (!adminViewing) {
+      if (!state || !state.verified) return "";
+      const when = state.verifiedAt ? new Date(state.verifiedAt) : null;
+      const stamp = when && !isNaN(when.getTime()) ? when.toLocaleDateString("en-NZ") : "";
+      return `<div class="passport-check" style="cursor:default;">
+          <span>✓</span>
+          <span>Checked by the office
+            <span class="passport-check-meta">${attrEsc([state.verifiedBy, stamp].filter(Boolean).join(" · "))}</span>
+          </span>
+        </div>`;
+    }
+
+    const when = state && state.verifiedAt ? new Date(state.verifiedAt) : null;
+    const stamp = when && !isNaN(when.getTime()) ? when.toLocaleDateString("en-NZ") : "";
+    const meta = state && state.verified && (state.verifiedBy || stamp)
+      ? `<span class="passport-check-meta">${attrEsc([state.verifiedBy, stamp].filter(Boolean).join(" · "))}</span>`
+      : `<span class="passport-check-meta">Marks the passport details as checked, so nobody else needs to review them.</span>`;
+
+    return `<label class="passport-check">
+        <input type="checkbox" id="passportVerifiedBox"${state && state.verified ? " checked" : ""}>
+        <span>Passport details checked manually${meta}</span>
+      </label>`;
+  }
+
+  function wirePassportPanel() {
+    document.getElementById("passportApplyBtn")?.addEventListener("click", applyPassportName);
+    document.getElementById("passportRereadBtn")?.addEventListener("click", rereadPassport);
+    document.getElementById("passportVerifiedBox")?.addEventListener("change", togglePassportVerified);
+  }
+
+  function setPassportMessage(text) {
+    const panel = document.getElementById("passportPanel");
+    const msg = panel?.querySelector(".passport-panel-message");
+    if (msg) msg.textContent = text;
+    else if (panel) panel.insertAdjacentHTML("beforeend", `<div class="passport-panel-message">${attrEsc(text)}</div>`);
+  }
+
+  async function rereadPassport() {
+    if (!__modalPerson?.email) return;
+    const btn = document.getElementById("passportRereadBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "READING…"; }
+    try {
+      const res = await apiFetch("/.netlify/functions/read-passport", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // force: skip the cache — the point of the button is to try again.
+        body: JSON.stringify({ email: __modalPerson.email, force: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) { setPassportMessage(data.error || `Couldn't re-read (HTTP ${res.status}).`); return; }
+      __passportState = data;
+      paintPassportPanel(data, __modalPerson);
+    } catch (err) {
+      setPassportMessage(`Couldn't re-read: ${err.message || String(err)}`);
+    } finally {
+      const b = document.getElementById("passportRereadBtn");
+      if (b) { b.disabled = false; b.textContent = "RE-READ PASSPORT"; }
+    }
+  }
+
+  // One click to put the passport's name on the record. Writes the HubSpot
+  // contact AND the application form's passport-name question, so the roster
+  // card, the CRM and the group export's passenger sheet all agree afterwards.
+  async function applyPassportName() {
+    if (!__modalPerson?.email || !__passportState) return;
+    const btn = document.getElementById("passportApplyBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "APPLYING…"; }
+
+    const first = __passportState.passportFirst || "";
+    const last = __passportState.passportLast || "";
+
+    try {
+      // The form's name question is a full-name composite, written one
+      // subfield at a time. Find its qid from the person's own form so we
+      // write to the right question rather than assuming an id.
+      const application = {};
+      let formNoted = true;
+      try {
+        const formRes = await apiFetch(
+          `/.netlify/functions/get-person-form?email=${encodeURIComponent(__modalPerson.email)}`
+        );
+        const formData = await formRes.json().catch(() => ({}));
+        const wanted = PASSPORT_NAME_LABELS.map(normaliseLabel);
+        const nameField = (formData.fields || []).find(f =>
+          f.composite && f.type === "control_fullname" && wanted.includes(normaliseLabel(f.label))
+        );
+        if (nameField) {
+          // Passport given names go in "first"; the middle subfield is
+          // cleared unless the passport carries more than one given name, so
+          // the record can't keep a middle name the passport doesn't have.
+          const given = first.split(/\s+/).filter(Boolean);
+          application[`${nameField.qid}_first`] = given[0] || "";
+          if (nameField.subfields?.some(sf => sf.key === `${nameField.qid}_middle`)) {
+            application[`${nameField.qid}_middle`] = given.slice(1).join(" ");
+          }
+          application[`${nameField.qid}_last`] = last;
+        } else {
+          formNoted = false;
+        }
+      } catch (_) {
+        formNoted = false;
+      }
+
+      const res = await apiFetch("/.netlify/functions/update-person", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: __modalPerson.email,
+          name: __modalPerson.name,
+          application,
+          contact: { firstname: first.split(/\s+/)[0] || "", lastname: last },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        setPassportMessage(data.error || `Couldn't apply the name (HTTP ${res.status}).`);
+        if (btn) { btn.disabled = false; btn.textContent = "USE THE PASSPORT NAME"; }
+        return;
+      }
+
+      setPassportMessage(
+        formNoted
+          ? "Applied. The record and the application form now match the passport."
+          : "Applied to the contact record. The application form has no passport-name question to update."
+      );
+      refreshCurrentRoster();
+      // Re-open so the modal header and the badge reflect the new name.
+      const person = { ...__modalPerson, name: [first.split(/\s+/)[0], last].filter(Boolean).join(" ") };
+      setTimeout(() => openApplicationModal(person.email, person.name, person.tripLeaderOnly), 900);
+    } catch (err) {
+      setPassportMessage(`Couldn't apply the name: ${err.message || String(err)}`);
+      if (btn) { btn.disabled = false; btn.textContent = "USE THE PASSPORT NAME"; }
+    }
+  }
+
+  async function togglePassportVerified(e) {
+    const box = e.target;
+    const wanted = !!box.checked;
+    box.disabled = true;
+    try {
+      const res = await apiFetch("/.netlify/functions/set-passport-verified", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: __modalPerson?.email, verified: wanted }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        box.checked = !wanted;   // put the box back — the save didn't happen
+        setPassportMessage(data.error || `Couldn't save the check (HTTP ${res.status}).`);
+        return;
+      }
+      __passportState = { ...(__passportState || {}), ...(data.passport || {}) };
+      paintPassportPanel(__passportState, __modalPerson);
+      refreshCurrentRoster();
+    } catch (err) {
+      box.checked = !wanted;
+      setPassportMessage(`Couldn't save the check: ${err.message || String(err)}`);
+    } finally {
+      const b = document.getElementById("passportVerifiedBox");
+      if (b) b.disabled = false;
+    }
   }
 
   // ----- Leader edit form -----------------------------------------------
