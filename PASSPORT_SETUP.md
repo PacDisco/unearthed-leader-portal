@@ -72,8 +72,13 @@ Opening a card shows a four-row comparison — name, passport number, date of
 birth, expiry — with what's on record beside what the document says, a tick on
 the rows that agree, and a **USE THIS** button on the rows that don't.
 
-A row whose record side is **empty** also offers USE THIS, and reads
-*missing*. Filling a gap matters as much as fixing a mistake — a missing
+All four rows are always shown, even when neither side has a value — a row
+that quietly disappeared would leave you unable to tell "checked and fine"
+from "never checked". An empty cell says which side is missing: *not on the
+form* / *not on the passport*.
+
+A row whose record side is **empty** but which the passport can fill offers
+USE THIS, and reads *missing*. Filling a gap matters as much as fixing a mistake — a missing
 passport number or date of birth stops a booking outright — and an empty field
 is never a "mismatch", so it would otherwise never offer the button. Applying
 writes to the right place automatically: the name goes to both the HubSpot
@@ -92,6 +97,25 @@ for everyone else: a person in the office has looked at the document, which
 outranks anything the automatic read concluded. Leaders see the tick and who
 set it but can't set it themselves — enforced server-side, not just hidden in
 the UI.
+
+### Which form questions are read
+
+Matched by label, and for the date of birth by field type as well:
+
+| Check | Labels matched | Types matched |
+|---|---|---|
+| Passport number | contains "passport" and "number" / "no" / "#" | — |
+| Date of birth | "date of birth", "DOB", "birth date", "birthday", "born" | `control_birthdate` |
+| Expiry | "expiry", "expiration", "expires", "valid until" | — |
+
+The type fallback matters: Jotform's dedicated **Birth Date** field is
+`control_birthdate`, a different type string from `control_datetime`. Any form
+built with it — whatever the school labelled the question — is matched on type
+even if the label isn't recognised.
+
+If a check shows *not on the form*, the question exists under wording none of
+the above catch. Add the pattern to `DOB_LABELS` / `EXPIRY_LABELS` in
+`read-passport.js`.
 
 ## 4. How names are compared
 

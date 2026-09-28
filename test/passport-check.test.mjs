@@ -562,6 +562,56 @@ test("a download failure is transient — reported, not cached", async () => {
   assert.equal(sent.patch, null, "a transient failure must not be cached");
 });
 
+test("a date of birth on Jotform's Birth Date field is still found", async () => {
+  // control_birthdate is a DIFFERENT type string from control_datetime. It
+  // used to be invisible here, which silently dropped the DOB check for any
+  // form built with Jotform's own birth-date field.
+  stubFetch({ formDob: null, docDob: "2008-03-16" });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("api.jotform.com/form/111111/submissions")) {
+      return jsonRes({ content: [{
+        id: "sub-1", created_at: "2026-03-01 10:00:00",
+        answers: {
+          "1": { type: "control_email", text: "Email", order: "1", answer: "mia@example.com" },
+          // Labelled in a way the old patterns missed, AND a birthdate type.
+          "4": { type: "control_birthdate", text: "Birthday", order: "4",
+                 answer: { day: "15", month: "03", year: "2008" } },
+          "9": { type: "control_fileupload", text: "Passport Cover Page Photo", order: "9",
+                 answer: ["https://www.jotform.com/uploads/passport.jpg"] },
+        },
+      }] });
+    }
+    return realFetch(url, init);
+  };
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.formDob, "2008-03-15");
+  assert.equal(body.dobVerdict, DATE_VERDICT.MISMATCH); // passport says the 16th
+});
+
+test("expiry labelled 'Valid Until' is still found", async () => {
+  stubFetch({ formExpiry: null });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("api.jotform.com/form/111111/submissions")) {
+      return jsonRes({ content: [{
+        id: "sub-1", created_at: "2026-03-01 10:00:00",
+        answers: {
+          "1": { type: "control_email", text: "Email", order: "1", answer: "mia@example.com" },
+          "6": { type: "control_datetime", text: "Valid Until", order: "6",
+                 answer: { day: "01", month: "06", year: "2030" } },
+          "9": { type: "control_fileupload", text: "Passport Cover Page Photo", order: "9",
+                 answer: ["https://www.jotform.com/uploads/passport.jpg"] },
+        },
+      }] });
+    }
+    return realFetch(url, init);
+  };
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.formExpiry, "2030-06-01");
+  assert.equal(body.expiryVerdict, DATE_VERDICT.MATCH);
+});
+
 // --- 4. the ops tick --------------------------------------------------------
 
 function callVerify(email, payload) {

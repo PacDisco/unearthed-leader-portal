@@ -226,6 +226,16 @@ test("a date is writable through its subfields but not as a flat string", () => 
   assert.deepEqual(parts.fields, { "5_day": "2", "5_month": "7", "5_year": "2031" });
 });
 
+test("a Jotform Birth Date field is editable through its subfields", () => {
+  const sub = { id: "s", answers: {
+    "7": { type: "control_birthdate", text: "Birthday", order: "7", answer: { day: "15", month: "3", year: "2008" } },
+  } };
+  const { fields } = buildUpdatePayload(sub, { "7_day": "16" }, { allowSensitiveBlank: true });
+  assert.deepEqual(fields, { "7_day": "16" });
+  // And a flat write is still refused.
+  assert.deepEqual(buildUpdatePayload(sub, { "7": "2008-03-16" }, { allowSensitiveBlank: true }).fields, {});
+});
+
 test("an unknown date subfield is refused", () => {
   const { fields, skipped } = buildUpdatePayload(
     SUBMISSION, { "5_hour": "09" }, { allowSensitiveBlank: true }

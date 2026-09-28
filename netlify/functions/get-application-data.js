@@ -179,7 +179,7 @@ function formatAnswer(a, session) {
     return list.map(u => proxyUrl(String(u), session) || String(u));
   }
 
-  if (t === "control_datetime" && typeof v === "object") {
+  if ((t === "control_datetime" || t === "control_birthdate") && typeof v === "object") {
     const day = v.day, month = v.month, year = v.year;
     if (day && month && year) {
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;

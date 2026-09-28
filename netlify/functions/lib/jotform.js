@@ -113,6 +113,15 @@ const COMPOSITE_SUBFIELDS = {
     { key: "month", label: "Month" },
     { key: "year",  label: "Year" },
   ],
+  // Jotform's dedicated Birth Date field. Same {day, month, year} shape as a
+  // datetime, but a DIFFERENT type string — miss it and a date of birth
+  // collected with that field is invisible to everything here: unreadable,
+  // uncomparable and unwritable.
+  control_birthdate: [
+    { key: "day",   label: "Day" },
+    { key: "month", label: "Month" },
+    { key: "year",  label: "Year" },
+  ],
 };
 
 // Jotform only returns the subfields a form actually asks for. Rendering an
@@ -418,7 +427,7 @@ function formatAnswer(a) {
     if (Array.isArray(v)) return v.filter(Boolean).join(", ");
     return v ? String(v) : "";
   }
-  if (t === "control_datetime" && typeof v === "object") {
+  if ((t === "control_datetime" || t === "control_birthdate") && typeof v === "object") {
     const { day, month, year } = v;
     if (day && month && year) {
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;

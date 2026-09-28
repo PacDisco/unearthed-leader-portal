@@ -106,7 +106,7 @@ export async function handler(event) {
         // here — it was never stored — so a cached mismatch shows the verdict
         // and RE-READ reveals both.
         formNumber: formPassportNumber(submission.submission) || "",
-        formDob: formFieldValue(submission.submission, DOB_LABELS) || "",
+        formDob: formFieldValue(submission.submission, DOB_LABELS, DOB_TYPES) || "",
         formExpiry: formFieldValue(submission.submission, EXPIRY_LABELS) || "",
       });
     }
@@ -164,7 +164,7 @@ export async function handler(event) {
 
     // Same treatment for the two dates. A wrong date of birth or a passport
     // that expires before the trip both stop someone travelling.
-    const formDob = formFieldValue(submission.submission, DOB_LABELS);
+    const formDob = formFieldValue(submission.submission, DOB_LABELS, DOB_TYPES);
     const formExpiry = formFieldValue(submission.submission, EXPIRY_LABELS);
     const dobComparison = compareDates(formDob, read.dob);
     const expiryComparison = compareDates(formExpiry, read.expiry);
@@ -260,18 +260,26 @@ function passportPhotoUrl(submission) {
 
 // Question labels for the two dates, kept in step with FIELD_MAP.travel in
 // lib/group-info.js so the export and this check read the same questions.
-const DOB_LABELS = [/date\s*of\s*birth/i, /^dob$/i, /birth\s*date/i];
-const EXPIRY_LABELS = [/expiry/i, /expiration/i];
+const DOB_LABELS = [/date\s*of\s*birth/i, /^d\.?o\.?b\.?$/i, /birth\s*date/i, /birthday/i, /born/i];
+const EXPIRY_LABELS = [/expiry/i, /expiration/i, /expires/i, /valid\s*until/i];
+
+// Jotform's Birth Date field IS a date of birth whatever the school labelled
+// it, so the type is a second way in when the label doesn't match.
+const DOB_TYPES = ["control_birthdate"];
 
 // First answered field whose label matches any of the patterns. Dates come
 // back from Jotform as a {day, month, year} object, which is flattened to
 // YYYY-MM-DD so it compares against the passport's date directly.
-function formFieldValue(submission, patterns) {
+function formFieldValue(submission, patterns, types = []) {
   const answers = submission?.answers || {};
   for (const key of Object.keys(answers)) {
     const a = answers[key] || {};
     const label = String(a.text || a.name || "");
-    if (!patterns.some(re => re.test(label))) continue;
+    const type = String(a.type || "").toLowerCase();
+    // Label OR type: a school that labelled the question "Birthday" still
+    // gets matched, and so does one whose label we don't recognise at all but
+    // which used Jotform's Birth Date field.
+    if (!patterns.some(re => re.test(label)) && !types.includes(type)) continue;
 
     const v = a.answer;
     if (v && typeof v === "object" && !Array.isArray(v)) {

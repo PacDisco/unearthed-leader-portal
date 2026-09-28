@@ -5125,17 +5125,19 @@
   }
 
   function renderPassportTable(rows, state) {
-    const visible = rows.filter(r => r.onRecord || r.onPassport || verdictNeedsLook(r.verdict));
-    if (visible.length === 0) return "";
-
-    const body = visible.map(r => {
+    // ALL FOUR rows, always. These are a checklist, and a row that quietly
+    // disappears when neither side has a value is the worst case: the leader
+    // can't tell "checked and fine" from "never checked". An empty row says
+    // which side is missing instead.
+    const body = rows.map(r => {
       const needsLook = !state.verified && (verdictNeedsLook(r.verdict) || (r.canApply && !r.onRecord));
 
-      // Without a value from the document (a cached view), say what the
-      // verdict was rather than leaving the cell blank.
+      // Without a value from the document (a cached view, or a read that
+      // couldn't make this field out), say which rather than leaving the
+      // cell blank.
       const passportCell = r.onPassport
         ? attrEsc(r.onPassport)
-        : `<span class="passport-cell-empty">${attrEsc(cachedVerdictText(r.verdict))}</span>`;
+        : `<span class="passport-cell-empty">${attrEsc(passportCellText(r, state))}</span>`;
 
       const action = (!state.verified && r.canApply)
         ? `<button class="passport-btn passport-btn--row" type="button" data-apply="${attrEsc(r.key)}">USE THIS</button>`
@@ -5143,7 +5145,7 @@
 
       return `<tr class="${needsLook ? "is-problem" : ""}">
           <th scope="row">${attrEsc(r.label)}</th>
-          <td>${r.onRecord ? attrEsc(r.onRecord) : `<span class="passport-cell-empty">${r.canApply ? "missing" : "not given"}</span>`}</td>
+          <td>${r.onRecord ? attrEsc(r.onRecord) : `<span class="passport-cell-empty">${r.canApply ? "missing" : "not on the form"}</span>`}</td>
           <td>${passportCell}</td>
           <td class="passport-cell-action">${action}</td>
         </tr>`;
@@ -5157,13 +5159,22 @@
       </table>`;
   }
 
-  function cachedVerdictText(verdict) {
-    return {
+  function passportCellText(row, state) {
+    const cached = {
       match: "matches — re-read to see it",
       mismatch: "differs — re-read to see it",
       confusable: "needs checking — re-read to see it",
-      ambiguous: "date written ambiguously — re-read to see it",
-    }[verdict] || "not read";
+      ambiguous: "written ambiguously — re-read to see it",
+    }[row.verdict];
+    if (cached) return cached;
+
+    // No verdict and no value: say why, so an empty row is informative
+    // rather than mysterious.
+    if (state.status === "no_photo") return "no passport uploaded";
+    if (state.status === "unsupported") return "file can't be read";
+    if (state.status === "unreadable") return "couldn't be made out";
+    if (state.status === "error") return "not read — try again";
+    return "not on the passport";
   }
 
   // Ops-only. Leaders see the tick and who set it, but only an admin can set
