@@ -70,7 +70,12 @@ names and the numbers side by side, with:
 
 Opening a card shows a four-row comparison — name, passport number, date of
 birth, expiry — with what's on record beside what the document says, a tick on
-the rows that agree, and a **USE THIS** button on the rows that don't. Applying
+the rows that agree, and a **USE THIS** button on the rows that don't.
+
+A row whose record side is **empty** also offers USE THIS, and reads
+*missing*. Filling a gap matters as much as fixing a mistake — a missing
+passport number or date of birth stops a booking outright — and an empty field
+is never a "mismatch", so it would otherwise never offer the button. Applying
 writes to the right place automatically: the name goes to both the HubSpot
 contact and the form's name question; the number and the dates go to the form.
 When more than one row can be applied there is also a **USE ALL n FROM
@@ -120,6 +125,20 @@ readings are kept:
 A date written unambiguously (`2008-03-15`, `15/03/2008`, `15 Mar 2008`) has
 only one reading and compares directly. Anything unparseable is `unknown`, not
 a mismatch.
+
+Dates are **displayed** as `15 March 2008` — a spelled-out month cannot be
+read the wrong way round, which is the whole problem with dates on passports.
+A value that could be read two ways is shown *both* ways
+(`3 April 2030 or 4 March 2030`) rather than silently picking one: printing a
+single reading for an ambiguous entry would hide the exact mistake this screen
+exists to surface. Storage and comparison stay ISO; this is display only, and
+it applies to the dates in the medical detail below the panel as well.
+
+Note the small duplication: `formatDateDisplay()` in `public/index.html`
+mirrors `parseDateCandidates()` in `_shared/passport.js`, because the page is
+a classic script with no build step and can't import the server module. The
+copy only decides how a value is *printed* — all comparison stays server-side,
+so a drift between them cannot produce a wrong verdict.
 
 The read is asked for dates as `YYYY-MM-DD` and takes the century from the
 printed page's four-digit year, rather than guessing it from the MRZ's

@@ -4268,6 +4268,70 @@
     return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
   }
 
+  // ----- Date display ----------------------------------------------------
+  // Dates are shown as "15 March 2008" — a spelled-out month can't be read
+  // the wrong way round, which is the entire problem with dates on passports.
+  //
+  // This mirrors parseDateCandidates() in netlify/functions/_shared/passport.js.
+  // The duplication is deliberate: that module is server-side ESM and this
+  // page is a classic script with no build step. Comparison logic stays on
+  // the server — this copy only decides how a value is PRINTED, so a drift
+  // between them can't produce a wrong verdict.
+  const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+  const MONTH_LOOKUP = {
+    JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
+    JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+  };
+
+  function dateParts(y, m, d) {
+    if (!y || !m || !d || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    return { y, m, d };
+  }
+
+  function dateReadings(value) {
+    const raw = String(value == null ? "" : value).trim();
+    if (!raw) return [];
+
+    let m = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (m) return [dateParts(+m[1], +m[2], +m[3])].filter(Boolean);
+
+    m = raw.match(/^(\d{1,2})[\s-]*([A-Za-z]{3,})[\s-]*(\d{4})$/);
+    if (m) return [dateParts(+m[3], MONTH_LOOKUP[m[2].slice(0, 3).toUpperCase()], +m[1])].filter(Boolean);
+
+    m = raw.match(/^([A-Za-z]{3,})[\s-]*(\d{1,2}),?[\s-]*(\d{4})$/);
+    if (m) return [dateParts(+m[3], MONTH_LOOKUP[m[1].slice(0, 3).toUpperCase()], +m[2])].filter(Boolean);
+
+    m = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (m) {
+      const a = +m[1], b = +m[2], y = +m[3];
+      const dayFirst = dateParts(y, b, a);
+      const monthFirst = dateParts(y, a, b);
+      if (a > 12 && dayFirst) return [dayFirst];
+      if (b > 12 && monthFirst) return [monthFirst];
+      const out = [];
+      if (dayFirst) out.push(dayFirst);
+      if (monthFirst && !(dayFirst && monthFirst.m === dayFirst.m && monthFirst.d === dayFirst.d)) out.push(monthFirst);
+      return out;
+    }
+    return [];
+  }
+
+  function spellDate(p) {
+    return `${p.d} ${MONTH_NAMES[p.m - 1]} ${p.y}`;
+  }
+
+  // "2008-03-15" → "15 March 2008". A value that could be read two ways is
+  // shown BOTH ways rather than silently picking one — printing "3 April"
+  // for an entry that may have meant 4 March would hide exactly the mistake
+  // this screen exists to surface. Anything unparseable is shown as typed.
+  function formatDateDisplay(value) {
+    const readings = dateReadings(value);
+    if (readings.length === 0) return String(value == null ? "" : value);
+    if (readings.length === 1) return spellDate(readings[0]);
+    return readings.map(spellDate).join("  or  ");
+  }
+
   // The card badge. Returns "" when there's nothing worth saying, so a clean
   // roster doesn't turn into a wall of notices.
   function renderPassportBadge(passport) {
@@ -4717,7 +4781,12 @@
       `;
     }
 
-    const raw = field.value == null ? "" : String(field.value).trim();
+    let raw = field.value == null ? "" : String(field.value).trim();
+    // Dates read as "15 March 2008" here as well, so the medical detail and
+    // the passport check agree on how a date looks.
+    if ((field.type || "").toLowerCase() === "control_datetime" && raw) {
+      raw = formatDateDisplay(raw);
+    }
     const isYes = /^yes$/i.test(raw);
     const isNo = /^no$/i.test(raw);
     const cls = isYes ? "is-yes" : (isNo ? "is-no" : "");
@@ -4944,6 +5013,14 @@
     const nameVerdict = state.nameMatches === false ? "mismatch"
       : state.nameMatches === true ? "match" : "unknown";
 
+    // A row can be applied when we hold a value from the passport AND either
+    // the record disagrees, or the record is EMPTY. Filling a gap is as
+    // useful as fixing a mistake — arguably more so, since a missing passport
+    // number or date of birth stops a booking outright — and an empty field
+    // is never a "mismatch", so it would otherwise never offer the button.
+    const appliable = (passportValue, recordValue, verdict) =>
+      !!passportValue && (verdictNeedsLook(verdict) || !String(recordValue || "").trim());
+
     return [
       {
         key: "name",
@@ -4951,7 +5028,7 @@
         onRecord: recorded,
         onPassport: state.passportName || "",
         verdict: nameVerdict,
-        canApply: !!(state.passportFirst && nameVerdict === "mismatch"),
+        canApply: appliable(state.passportFirst, recorded, nameVerdict),
       },
       {
         key: "number",
@@ -4959,32 +5036,25 @@
         onRecord: state.formNumber || "",
         onPassport: state.passportNumber || "",
         verdict: state.numberVerdict || "unknown",
-        canApply: !!(state.passportNumber && verdictNeedsLook(state.numberVerdict)),
+        canApply: appliable(state.passportNumber, state.formNumber, state.numberVerdict),
       },
       {
         key: "dob",
         label: "Date of birth",
-        onRecord: state.formDob || "",
-        onPassport: state.passportDob || "",
+        onRecord: formatDateDisplay(state.formDob || ""),
+        onPassport: formatDateDisplay(state.passportDob || ""),
         verdict: state.dobVerdict || "unknown",
-        canApply: !!(state.passportDob && verdictNeedsLook(state.dobVerdict)),
+        canApply: appliable(state.passportDob, state.formDob, state.dobVerdict),
       },
       {
         key: "expiry",
         label: "Passport expiry",
-        onRecord: state.formExpiry || "",
-        onPassport: state.passportExpiry || "",
+        onRecord: formatDateDisplay(state.formExpiry || ""),
+        onPassport: formatDateDisplay(state.passportExpiry || ""),
         verdict: state.expiryVerdict || "unknown",
-        canApply: !!(state.passportExpiry && verdictNeedsLook(state.expiryVerdict)),
+        canApply: appliable(state.passportExpiry, state.formExpiry, state.expiryVerdict),
       },
     ];
-  }
-
-  // Actions shown when the panel couldn't load at all — just a way to try again.
-  function renderPassportRetry() {
-    return `<div class="passport-panel-actions">
-        <button class="passport-btn passport-btn--secondary" type="button" id="passportRereadBtn">RE-READ PASSPORT</button>
-      </div>`;
   }
 
   function verdictNeedsLook(v) {
@@ -5001,6 +5071,9 @@
     // without being appliable — on a cached view we know it differs but not
     // what it should be — so "apply all" counts these, not the problems.
     const applicable = state.verified ? [] : rows.filter(r => r.canApply);
+    // Rows the passport can fill that the record simply doesn't have. Not a
+    // disagreement, so they're worded differently, but still worth naming.
+    const missing = state.verified ? [] : rows.filter(r => r.canApply && !verdictNeedsLook(r.verdict));
 
     panel.className = "passport-panel"
       + (state.verified ? " passport-panel--checked" : (problems.length ? " passport-panel--mismatch" : ""));
@@ -5016,7 +5089,7 @@
       message = state.message || "The passport couldn't be read just now.";
     } else if (state.verified) {
       message = "Checked by hand — no further review needed.";
-    } else if (problems.length) {
+    } else if (problems.length || missing.length) {
       // A value that is genuinely different and one that is merely ambiguous
       // need different words: "differs" for the first, "needs checking" for
       // the second. Calling an ambiguity a difference is how a flag stops
@@ -5026,9 +5099,12 @@
       const hard = problems.filter(p => p.verdict === "mismatch").map(p => p.label.toLowerCase());
       const soft = problems.filter(p => p.verdict !== "mismatch").map(p => p.label.toLowerCase());
 
+      const gaps = missing.map(p => p.label.toLowerCase());
+
       const parts = [];
       if (hard.length) parts.push(`The ${join(hard)} on record ${hard.length === 1 ? "differs" : "differ"} from the passport.`);
       if (soft.length) parts.push(`The ${join(soft)} ${soft.length === 1 ? "needs" : "need"} checking against it — the value could be read more than one way.`);
+      if (gaps.length) parts.push(`The ${join(gaps)} ${gaps.length === 1 ? "is" : "are"} missing from the record — the passport has ${gaps.length === 1 ? "it" : "them"}.`);
       parts.push("A booking has to match the passport.");
       message = parts.join(" ");
     } else if (rows.some(r => r.verdict === "match")) {
@@ -5053,7 +5129,7 @@
     if (visible.length === 0) return "";
 
     const body = visible.map(r => {
-      const needsLook = !state.verified && verdictNeedsLook(r.verdict);
+      const needsLook = !state.verified && (verdictNeedsLook(r.verdict) || (r.canApply && !r.onRecord));
 
       // Without a value from the document (a cached view), say what the
       // verdict was rather than leaving the cell blank.
@@ -5067,7 +5143,7 @@
 
       return `<tr class="${needsLook ? "is-problem" : ""}">
           <th scope="row">${attrEsc(r.label)}</th>
-          <td>${r.onRecord ? attrEsc(r.onRecord) : `<span class="passport-cell-empty">not given</span>`}</td>
+          <td>${r.onRecord ? attrEsc(r.onRecord) : `<span class="passport-cell-empty">${r.canApply ? "missing" : "not given"}</span>`}</td>
           <td>${passportCell}</td>
           <td class="passport-cell-action">${action}</td>
         </tr>`;
