@@ -1,7 +1,8 @@
 # Passport name checking — setup
 
-The portal reads the name off each person's uploaded passport photo, compares
-it to the name on record, and flags the ones that disagree. **It never changes
+The portal reads the name and passport number off each person's uploaded
+passport photo, compares them to what's on record, and flags the ones that
+disagree. **It never changes
 a name on its own** — a leader applies the passport name with one click, and
 ops can mark a passport as checked by hand.
 
@@ -33,6 +34,7 @@ properties → Create property). Internal names must match exactly.
 | `passport_ocr_first` | Single-line text | the read |
 | `passport_ocr_last` | Single-line text | the read |
 | `passport_ocr_status` | Single-line text | the read — `ok` / `no_photo` / `unreadable` / `error` |
+| `passport_ocr_number_match` | Single-line text | the read — `match` / `mismatch` / `confusable` / `unknown` |
 | `passport_ocr_hash` | Single-line text | the read — which photo it read |
 | `passport_ocr_read_at` | Single-line text | the read — ISO timestamp |
 | `passport_checked` | Single checkbox | ops |
@@ -45,18 +47,30 @@ and makes an ordinary ISO write fail.
 
 ### What is deliberately NOT stored
 
-Only the **name** comes back from the read. The passport number, date of birth
-and the MRZ line itself are used during the read and dropped. The number is
-already on the application form; copying it into the CRM would widen where it
-sits for no benefit.
+Only the **name** is kept. The date of birth and the MRZ line are used during
+the read and dropped.
+
+The passport **number** is compared — a transposed number fails a booking just
+as surely as a wrong name — but only the *verdict* is cached, never the number.
+The number read off the image is returned to the leader who triggered that read
+and then forgotten. So a leader looking at a cached mismatch sees "does not
+match the passport — re-read to see it", and RE-READ shows both numbers again.
+One extra API call on the rare mismatch is the price of keeping passport
+numbers out of the CRM.
 
 ## 3. What each person sees
 
 **Expedition leader** — a badge on each roster card: *name doesn't match
-passport* (with the passport spelling), *no passport photo*, *needs a manual
-check*, or *passport checked*. Opening a card shows the two names side by side
-and, on a mismatch, a **USE THE PASSPORT NAME** button that writes the name to
-the HubSpot contact and the application form's name question together.
+passport* (with the passport spelling), *passport number doesn't match*, *name
+and passport number don't match*, *passport number needs a look*, *no passport
+photo*, *needs a manual check*, or *passport checked*. Opening a card shows the
+names and the numbers side by side, with:
+
+- **USE THE PASSPORT NAME** — writes the name to the HubSpot contact and the
+  application form's name question together.
+- **USE THE PASSPORT NUMBER** — writes the number to the application form's
+  passport-number question, then re-reads so the cached verdict catches up.
+  Only offered on a fresh read, since the number isn't stored.
 
 **Ops / admin** — everything above, plus the **Passport details checked
 manually** tick. Ticking it records who and when, and settles the mismatch flag
@@ -81,6 +95,20 @@ mismatch — the contact only holds first and last. A shortened first name
 check-in.
 
 An unread passport is never shown as a mismatch, only as unchecked.
+
+### Numbers
+
+Compared after stripping case, spaces and hyphens. Three outcomes rather than
+two:
+
+- **match** — identical
+- **mismatch** — genuinely different; the record needs fixing
+- **confusable** — differ only by characters OCR routinely swaps on a passport
+  font (`0`/`O`, `1`/`I`, `5`/`S`, `8`/`B`). Shown as *needs a look* rather
+  than *wrong*, because calling an OCR ambiguity a mismatch trains people to
+  dismiss the flag, and calling it a match would hide a real error.
+
+A number missing from either side is `unknown`, never a mismatch.
 
 ## 5. Accuracy
 

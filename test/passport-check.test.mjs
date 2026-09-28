@@ -18,6 +18,7 @@ process.env.JOTFORM_APPLICATION_FORM_ID = "111111";
 const { createToken } = await import("../netlify/functions/_shared/auth.js");
 const {
   normaliseName, compareNames, formatPassportName, shapePassportState, PASSPORT_PROPS,
+  normaliseDocNumber, compareDocumentNumbers, needsPassportAttention, NUMBER_VERDICT,
 } = await import("../netlify/functions/_shared/passport.js");
 const { handler: readPassport } = await import("../netlify/functions/read-passport.js");
 const { handler: setVerified } = await import("../netlify/functions/set-passport-verified.js");
@@ -198,6 +199,8 @@ function stubFetch(opts = {}) {
         id: "sub-1", created_at: "2026-03-01 10:00:00",
         answers: {
           "1": { type: "control_email", text: "Email", order: "1", answer: "mia@example.com" },
+          "7": { type: "control_textbox", text: "Passport Number", order: "7",
+                 answer: opts.formNumber === undefined ? "LA123456" : opts.formNumber },
           ...(opts.noPhoto ? {} : {
             "9": { type: "control_fileupload", text: "Passport Cover Page Photo", order: "9",
                    answer: ["https://www.jotform.com/uploads/passport.jpg"] }
@@ -219,7 +222,11 @@ function stubFetch(opts = {}) {
     if (u.includes("api.anthropic.com/v1/messages")) {
       sent.visionCalls++;
       if (opts.visionFails) return jsonRes({ error: "boom" }, false, 500);
-      const payload = opts.visionReply || { readable: true, surname: "SMITH", given_names: "JONATHAN MICHAEL", source: "mrz", reason: "" };
+      const payload = opts.visionReply || {
+        readable: true, surname: "SMITH", given_names: "JONATHAN MICHAEL",
+        document_number: opts.docNumber === undefined ? "LA123456" : opts.docNumber,
+        source: "mrz", reason: "",
+      };
       return jsonRes({ content: [{ type: "text", text: JSON.stringify(payload) }] });
     }
 
@@ -322,6 +329,86 @@ test("a teacher cannot trigger a passport read", async () => {
   const { statusCode } = await callRead("teacher@school.example", { email: "mia@example.com" });
   assert.equal(statusCode, 403);
   assert.equal(sent.visionCalls, 0);
+});
+
+// --- 3b. passport number comparison ----------------------------------------
+
+test("number normalising ignores case and separators", () => {
+  assert.equal(normaliseDocNumber("la 123-456"), "LA123456");
+  assert.equal(normaliseDocNumber(""), "");
+});
+
+test("an identical number matches", () => {
+  assert.equal(compareDocumentNumbers("LA123456", "la123456").verdict, NUMBER_VERDICT.MATCH);
+});
+
+test("a transposed number is a mismatch", () => {
+  assert.equal(compareDocumentNumbers("LA123456", "LA123465").verdict, NUMBER_VERDICT.MISMATCH);
+});
+
+test("characters OCR swaps are reported separately, not as a mismatch", () => {
+  // 0/O and 1/I on a passport font. Calling this a mismatch would train
+  // leaders to dismiss the flag; calling it a match would hide a real error.
+  assert.equal(compareDocumentNumbers("LA012345", "LAO12345").verdict, NUMBER_VERDICT.CONFUSABLE);
+  assert.equal(compareDocumentNumbers("N1234567", "NI234567").verdict, NUMBER_VERDICT.CONFUSABLE);
+});
+
+test("a missing number on either side is unknown, never a mismatch", () => {
+  assert.equal(compareDocumentNumbers("", "LA123456").verdict, NUMBER_VERDICT.UNKNOWN);
+  assert.equal(compareDocumentNumbers("LA123456", "").verdict, NUMBER_VERDICT.UNKNOWN);
+});
+
+test("the roster flags a number mismatch even when the name is right", () => {
+  const state = shapePassportState({
+    [PASSPORT_PROPS.ocrStatus]: "ok",
+    [PASSPORT_PROPS.ocrFirst]: "Jon",
+    [PASSPORT_PROPS.ocrLast]: "Smith",
+    [PASSPORT_PROPS.ocrNumber]: NUMBER_VERDICT.MISMATCH,
+  }, { recordedFirst: "Jon", recordedLast: "Smith" });
+  assert.equal(state.nameMatches, true);
+  assert.equal(state.numberMatches, false);
+  assert.equal(needsPassportAttention(state), true);
+});
+
+test("a manual check settles the number too", () => {
+  const state = shapePassportState({
+    [PASSPORT_PROPS.ocrStatus]: "ok",
+    [PASSPORT_PROPS.ocrNumber]: NUMBER_VERDICT.MISMATCH,
+    [PASSPORT_PROPS.verified]: "true",
+  }, { recordedFirst: "Jon", recordedLast: "Smith" });
+  assert.equal(state.numberMatches, true);
+  assert.equal(needsPassportAttention(state), false);
+});
+
+test("reading compares the form's number against the image", async () => {
+  stubFetch({ docNumber: "LA999999" });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.formNumber, "LA123456");
+  assert.equal(body.passportNumber, "LA999999");
+  assert.equal(body.numberVerdict, NUMBER_VERDICT.MISMATCH);
+  // Only the verdict is cached.
+  assert.equal(sent.patch[PASSPORT_PROPS.ocrNumber], NUMBER_VERDICT.MISMATCH);
+});
+
+test("a matching number is recorded as a match", async () => {
+  stubFetch();
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.numberVerdict, NUMBER_VERDICT.MATCH);
+});
+
+test("no number on the form is unknown, not a mismatch", async () => {
+  stubFetch({ formNumber: "" });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.numberVerdict, NUMBER_VERDICT.UNKNOWN);
+  assert.equal(body.numberMatches, null);
+});
+
+test("the number read off the image is never written to HubSpot", async () => {
+  stubFetch({ docNumber: "LA999999" });
+  await callRead("leader@trip.example", { email: "mia@example.com" });
+  const written = JSON.stringify(sent.patch);
+  assert.ok(!written.includes("LA999999"), "the passport number reached the CRM");
+  assert.ok(!written.includes("LA123456"), "the form's number reached the CRM");
 });
 
 // --- 4. the ops tick --------------------------------------------------------

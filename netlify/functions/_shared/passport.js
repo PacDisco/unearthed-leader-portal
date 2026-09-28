@@ -13,6 +13,13 @@
 // used for the read and then dropped — the number already lives on the
 // application form, and copying it into the CRM widens where it sits for no
 // benefit.
+//
+// The number IS compared — a transposed passport number fails a booking just
+// as surely as a wrong name — but only the VERDICT is cached. The number read
+// off the image is returned to the leader who triggered the read and then
+// forgotten, so a leader looking at a cached mismatch uses RE-READ to see the
+// actual number again. One extra API call on the rare mismatch is a fair
+// price for keeping passport numbers out of the CRM.
 
 // ---------------------------------------------------------------------------
 // HubSpot contact properties this feature needs.
@@ -28,6 +35,9 @@ export const PASSPORT_PROPS = {
   ocrFirst:   "passport_ocr_first",     // single-line text
   ocrLast:    "passport_ocr_last",      // single-line text
   ocrStatus:  "passport_ocr_status",    // single-line text — one of PASSPORT_STATUS
+  // VERDICT ONLY — "match" / "mismatch" / "confusable" / "unknown". The
+  // passport number itself is deliberately never stored here; see below.
+  ocrNumber:  "passport_ocr_number_match",
   ocrHash:    "passport_ocr_hash",      // single-line text — which photo was read
   ocrReadAt:  "passport_ocr_read_at",   // single-line text — ISO timestamp
   // Filled by the ops checkbox.
@@ -102,6 +112,49 @@ export function compareNames({ recordedFirst, recordedLast, passportFirst, passp
   };
 }
 
+// ---------------------------------------------------------------------------
+// Passport number comparison
+// ---------------------------------------------------------------------------
+
+// Characters OCR routinely swaps on a passport's font. Folded ONLY as a second
+// pass, to tell "someone typed the wrong number" apart from "the read is
+// probably fine but ambiguous" — never to declare a match.
+const CONFUSABLE = { O: "0", Q: "0", D: "0", I: "1", L: "1", S: "5", B: "8", Z: "2", G: "6", A: "4" };
+
+export function normaliseDocNumber(s) {
+  return String(s == null ? "" : s).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function foldConfusable(s) {
+  return normaliseDocNumber(s).split("").map(c => CONFUSABLE[c] || c).join("");
+}
+
+// Compare the passport number typed on the application form against the one
+// read off the image.
+//
+// Three outcomes rather than two, because a straight mismatch and an
+// OCR-ambiguity are different problems: the first needs the record fixed, the
+// second needs a human to look. Reporting the second as a mismatch would
+// train leaders to dismiss the flag.
+export function compareDocumentNumbers(formNumber, passportNumber) {
+  const a = normaliseDocNumber(formNumber);
+  const b = normaliseDocNumber(passportNumber);
+
+  if (!a || !b) return { comparable: false, verdict: NUMBER_VERDICT.UNKNOWN };
+  if (a === b) return { comparable: true, verdict: NUMBER_VERDICT.MATCH };
+  if (foldConfusable(a) === foldConfusable(b)) {
+    return { comparable: true, verdict: NUMBER_VERDICT.CONFUSABLE };
+  }
+  return { comparable: true, verdict: NUMBER_VERDICT.MISMATCH };
+}
+
+export const NUMBER_VERDICT = {
+  MATCH: "match",
+  MISMATCH: "mismatch",
+  CONFUSABLE: "confusable",  // differ only by characters OCR commonly swaps
+  UNKNOWN: "unknown",        // one side missing — never treated as a problem
+};
+
 // A display name in passport order, for showing next to the recorded name.
 export function formatPassportName(first, last) {
   const f = String(first || "").trim();
@@ -126,6 +179,7 @@ export function shapePassportState(props = {}, { recordedFirst, recordedLast } =
   const verified = String(props[PASSPORT_PROPS.verified] || "").toLowerCase() === "true";
 
   const comparison = compareNames({ recordedFirst, recordedLast, passportFirst, passportLast });
+  const numberVerdict = (props[PASSPORT_PROPS.ocrNumber] || "").trim() || NUMBER_VERDICT.UNKNOWN;
 
   return {
     status: status || null,              // null = never read
@@ -143,13 +197,29 @@ export function shapePassportState(props = {}, { recordedFirst, recordedLast } =
     // anything OCR concluded.
     nameMatches: verified ? true : (comparison.comparable ? comparison.matches : null),
     comparable: comparison.comparable,
+    // Same rule as the name: a manual check settles it.
+    numberVerdict: verified ? NUMBER_VERDICT.MATCH : numberVerdict,
+    numberMatches: verified
+      ? true
+      : (numberVerdict === NUMBER_VERDICT.UNKNOWN ? null : numberVerdict === NUMBER_VERDICT.MATCH),
   };
 }
 
+// True when this person needs someone to look at them — either name or number
+// disagrees with the document. Used for the roster badge.
+export function needsPassportAttention(state) {
+  if (!state || state.verified) return false;
+  return state.nameMatches === false
+    || state.numberVerdict === NUMBER_VERDICT.MISMATCH
+    || state.numberVerdict === NUMBER_VERDICT.CONFUSABLE;
+}
+
 // PATCH body for storing a read result.
-export function buildOcrPatch({ status, first, last, hash }) {
+export function buildOcrPatch({ status, first, last, hash, numberVerdict }) {
   return {
     [PASSPORT_PROPS.ocrStatus]: status,
+    // Verdict only — never the number itself.
+    [PASSPORT_PROPS.ocrNumber]: numberVerdict || NUMBER_VERDICT.UNKNOWN,
     [PASSPORT_PROPS.ocrFirst]: first || "",
     [PASSPORT_PROPS.ocrLast]: last || "",
     [PASSPORT_PROPS.ocrName]: formatPassportName(first, last),

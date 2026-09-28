@@ -4241,11 +4241,24 @@
       return `<div class="passport-badge passport-badge--checked">PASSPORT CHECKED${attrEsc(who)}</div>`;
     }
 
-    if (passport.nameMatches === false) {
+    const nameBad = passport.nameMatches === false;
+    const numberBad = passport.numberVerdict === "mismatch";
+    const numberIffy = passport.numberVerdict === "confusable";
+
+    if (nameBad || numberBad) {
+      const what = (nameBad && numberBad) ? "NAME AND PASSPORT NUMBER DON'T MATCH"
+        : nameBad ? "NAME DOESN'T MATCH PASSPORT"
+        : "PASSPORT NUMBER DOESN'T MATCH";
       return `<div class="passport-badge passport-badge--mismatch">
-          NAME DOESN'T MATCH PASSPORT
-          <span class="passport-badge-name">Passport: ${attrEsc(passport.passportName || "—")}</span>
+          ${what}
+          ${nameBad ? `<span class="passport-badge-name">Passport: ${attrEsc(passport.passportName || "—")}</span>` : ""}
         </div>`;
+    }
+
+    if (numberIffy) {
+      // Differs only by characters OCR swaps (0/O, 1/I). Not "wrong" — "look
+      // at it", which is a different instruction and deserves different words.
+      return `<div class="passport-badge passport-badge--mismatch">PASSPORT NUMBER NEEDS A LOOK</div>`;
     }
 
     if (passport.status === "no_photo") {
@@ -4868,17 +4881,26 @@
     panel.className = "passport-panel"
       + (state.verified ? " passport-panel--checked" : (mismatch ? " passport-panel--mismatch" : ""));
 
+    const numberBad = state.numberVerdict === "mismatch";
+    const numberIffy = state.numberVerdict === "confusable";
+
     let message = "";
     if (state.status === "no_photo") {
-      message = "No passport photo has been uploaded, so the name can't be checked against one.";
+      message = "No passport photo has been uploaded, so the details can't be checked against one.";
     } else if (state.status === "unreadable") {
-      message = state.message || "The name couldn't be made out on the uploaded photo — check it by hand.";
+      message = state.message || "The passport couldn't be made out on the uploaded photo — check it by hand.";
     } else if (state.status === "error") {
       message = state.message || "The passport couldn't be read just now.";
-    } else if (mismatch) {
-      message = "The name on record doesn't match the passport. The booking has to match the passport.";
     } else if (state.verified) {
       message = "Checked by hand — no further review needed.";
+    } else if (mismatch && numberBad) {
+      message = "The name and the passport number on record both differ from the passport.";
+    } else if (mismatch) {
+      message = "The name on record doesn't match the passport. The booking has to match the passport.";
+    } else if (numberBad) {
+      message = "The passport number on the application form doesn't match the passport.";
+    } else if (numberIffy) {
+      message = "The passport number differs only by characters that are easily misread (0/O, 1/I). Check it against the document.";
     } else if (state.nameMatches === true) {
       message = "The name on record matches the passport.";
     }
@@ -4895,6 +4917,7 @@
           <div class="passport-name-col-value${passportName ? "" : " is-empty"}">${attrEsc(passportName || "not read")}</div>
         </div>
       </div>
+      ${renderPassportNumberRow(state)}
       ${message ? `<div class="passport-panel-message">${attrEsc(message)}</div>` : ""}
       ${renderPassportActions(state)}
       ${renderPassportCheckbox(state)}
@@ -4902,10 +4925,53 @@
     wirePassportPanel();
   }
 
+  // The number half of the panel. `formNumber` / `passportNumber` only come
+  // back on a FRESH read — the number is never stored, so on a cached view we
+  // show the verdict and RE-READ reveals the numbers again.
+  function renderPassportNumberRow(state) {
+    if (!state) return "";
+
+    const form = state.formNumber || "";
+    const doc = state.passportNumber || "";
+    const verdict = state.numberVerdict || "unknown";
+
+    // Nothing to say: no number on the form and none read.
+    if (!form && !doc && verdict === "unknown") return "";
+
+    const verdictText = {
+      match: "matches the passport",
+      mismatch: "does not match the passport",
+      confusable: "needs checking against the passport",
+    }[verdict] || "";
+
+    // Cached view — we hold the form's value but not the document's.
+    const docCell = doc
+      ? `<div class="passport-name-col-value">${attrEsc(doc)}</div>`
+      : `<div class="passport-name-col-value is-empty">${attrEsc(verdictText ? `${verdictText} — re-read to see it` : "not read")}</div>`;
+
+    return `<div class="passport-name-row">
+        <div class="passport-name-col">
+          <div class="passport-name-col-label">NUMBER ON FORM</div>
+          <div class="passport-name-col-value${form ? "" : " is-empty"}">${attrEsc(form || "not given")}</div>
+        </div>
+        <div class="passport-name-col">
+          <div class="passport-name-col-label">NUMBER ON PASSPORT</div>
+          ${docCell}
+        </div>
+      </div>`;
+  }
+
   function renderPassportActions(state) {
-    const canApply = !!(state && state.status === "ok" && state.nameMatches === false && state.passportFirst);
+    const ok = !!(state && state.status === "ok");
+    const canApplyName = !!(ok && state.nameMatches === false && state.passportFirst);
+    // Only offered on a fresh read, because that's the only time we hold the
+    // number — it isn't stored.
+    const canApplyNumber = !!(ok && state.passportNumber
+      && (state.numberVerdict === "mismatch" || state.numberVerdict === "confusable"));
+
     return `<div class="passport-panel-actions">
-        ${canApply ? `<button class="passport-btn" type="button" id="passportApplyBtn">USE THE PASSPORT NAME</button>` : ""}
+        ${canApplyName ? `<button class="passport-btn" type="button" id="passportApplyBtn">USE THE PASSPORT NAME</button>` : ""}
+        ${canApplyNumber ? `<button class="passport-btn" type="button" id="passportApplyNumberBtn">USE THE PASSPORT NUMBER</button>` : ""}
         <button class="passport-btn passport-btn--secondary" type="button" id="passportRereadBtn">RE-READ PASSPORT</button>
       </div>`;
   }
@@ -4940,6 +5006,7 @@
 
   function wirePassportPanel() {
     document.getElementById("passportApplyBtn")?.addEventListener("click", applyPassportName);
+    document.getElementById("passportApplyNumberBtn")?.addEventListener("click", applyPassportNumber);
     document.getElementById("passportRereadBtn")?.addEventListener("click", rereadPassport);
     document.getElementById("passportVerifiedBox")?.addEventListener("change", togglePassportVerified);
   }
@@ -4974,6 +5041,65 @@
     }
   }
 
+  // Fetches the person's form fields so an apply can target the right
+  // question by label rather than assuming a question id.
+  async function personFormFields(email) {
+    try {
+      const res = await apiFetch(`/.netlify/functions/get-person-form?email=${encodeURIComponent(email)}`);
+      const data = await res.json().catch(() => ({}));
+      return Array.isArray(data.fields) ? data.fields : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // One click to put the passport's number on the application form. The number
+  // lives only on the form (never in the CRM), so this is a single-field write.
+  async function applyPassportNumber() {
+    if (!__modalPerson?.email || !__passportState?.passportNumber) return;
+    const btn = document.getElementById("passportApplyNumberBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "APPLYING…"; }
+
+    try {
+      const fields = await personFormFields(__modalPerson.email);
+      const field = fields.find(f =>
+        f.editable && !f.composite &&
+        /passport/i.test(f.label || "") && /number|no\b|#/i.test(f.label || "")
+      );
+
+      if (!field) {
+        setPassportMessage("The application form has no passport-number question to update.");
+        if (btn) { btn.disabled = false; btn.textContent = "USE THE PASSPORT NUMBER"; }
+        return;
+      }
+
+      const res = await apiFetch("/.netlify/functions/update-person", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: __modalPerson.email,
+          name: __modalPerson.name,
+          application: { [field.qid]: __passportState.passportNumber },
+          contact: {},
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        setPassportMessage(data.error || `Couldn't apply the number (HTTP ${res.status}).`);
+        if (btn) { btn.disabled = false; btn.textContent = "USE THE PASSPORT NUMBER"; }
+        return;
+      }
+
+      setPassportMessage("Applied. The application form now carries the passport number from the document.");
+      // Re-read so the cached verdict reflects the corrected form value.
+      setTimeout(rereadPassport, 600);
+    } catch (err) {
+      setPassportMessage(`Couldn't apply the number: ${err.message || String(err)}`);
+      if (btn) { btn.disabled = false; btn.textContent = "USE THE PASSPORT NUMBER"; }
+    }
+  }
+
   // One click to put the passport's name on the record. Writes the HubSpot
   // contact AND the application form's passport-name question, so the roster
   // card, the CRM and the group export's passenger sheet all agree afterwards.
@@ -4992,12 +5118,9 @@
       const application = {};
       let formNoted = true;
       try {
-        const formRes = await apiFetch(
-          `/.netlify/functions/get-person-form?email=${encodeURIComponent(__modalPerson.email)}`
-        );
-        const formData = await formRes.json().catch(() => ({}));
+        const formFields = await personFormFields(__modalPerson.email);
         const wanted = PASSPORT_NAME_LABELS.map(normaliseLabel);
-        const nameField = (formData.fields || []).find(f =>
+        const nameField = formFields.find(f =>
           f.composite && f.type === "control_fullname" && wanted.includes(normaliseLabel(f.label))
         );
         if (nameField) {
@@ -5066,7 +5189,17 @@
         setPassportMessage(data.error || `Couldn't save the check (HTTP ${res.status}).`);
         return;
       }
-      __passportState = { ...(__passportState || {}), ...(data.passport || {}) };
+      // Replace the verdict fields wholesale rather than merging: the server
+      // owns them, and spreading a response that omits one would leave a
+      // stale verdict on screen (e.g. a number mismatch surviving a tick that
+      // settled it).
+      __passportState = {
+        ...(data.passport || {}),
+        // These two aren't part of the stored state — they only ever come
+        // from a live read — so carry them across.
+        formNumber: __passportState?.formNumber || "",
+        passportNumber: __passportState?.passportNumber || "",
+      };
       paintPassportPanel(__passportState, __modalPerson);
       refreshCurrentRoster();
     } catch (err) {

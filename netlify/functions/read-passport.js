@@ -27,8 +27,8 @@ import { resolveRosterEditAccess } from "./_shared/portal-access.js";
 import { APPLICATION_FORM_IDS_CSV } from "./_shared/application-forms.js";
 import { findSubmissionByEmail } from "./lib/jotform.js";
 import {
-  PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS,
-  buildOcrPatch, shapePassportState,
+  PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT,
+  buildOcrPatch, shapePassportState, compareDocumentNumbers,
 } from "./_shared/passport.js";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // Anthropic's per-image limit
@@ -78,6 +78,7 @@ export async function handler(event) {
     if (!photoUrl) {
       await savePassportState(access.contactId, buildOcrPatch({
         status: PASSPORT_STATUS.NO_PHOTO, first: "", last: "", hash: "",
+        numberVerdict: NUMBER_VERDICT.UNKNOWN,
       }));
       return json(200, {
         ...shapePassportState({
@@ -93,7 +94,15 @@ export async function handler(event) {
     const cachedHash = contact[PASSPORT_PROPS.ocrHash] || "";
     const cachedStatus = contact[PASSPORT_PROPS.ocrStatus] || "";
     if (!body.force && cachedHash === hash && cachedStatus === PASSPORT_STATUS.OK) {
-      return json(200, { ...shapePassportState(contact, recorded), cached: true });
+      return json(200, {
+        ...shapePassportState(contact, recorded),
+        cached: true,
+        // The form's own value is already on screen in the modal below, so
+        // including it costs nothing. The number read off the IMAGE is not
+        // here — it was never stored — so a cached mismatch shows the verdict
+        // and RE-READ reveals both.
+        formNumber: formPassportNumber(submission.submission) || "",
+      });
     }
 
     // 3. Fetch the image and read it.
@@ -124,13 +133,28 @@ export async function handler(event) {
     }
 
     const status = (read.first || read.last) ? PASSPORT_STATUS.OK : PASSPORT_STATUS.UNREADABLE;
-    const patch = buildOcrPatch({ status, first: read.first, last: read.last, hash });
+
+    // Compare the number typed on the application form against the one on the
+    // image. A transposed passport number fails a booking just as surely as a
+    // wrong name.
+    const formNumber = formPassportNumber(submission.submission);
+    const numberComparison = compareDocumentNumbers(formNumber, read.number);
+
+    const patch = buildOcrPatch({
+      status, first: read.first, last: read.last, hash,
+      numberVerdict: numberComparison.verdict,
+    });
     const saved = await savePassportState(access.contactId, patch);
 
     const state = shapePassportState({ ...contact, ...patch }, recorded);
     return json(200, {
       ...state,
       cached: false,
+      // Returned to the leader who triggered this read, and not stored: the
+      // CRM never holds a passport number. A cached mismatch therefore shows
+      // the verdict without the number, and RE-READ reveals it again.
+      formNumber: formNumber || "",
+      passportNumber: read.number || "",
       message: status === PASSPORT_STATUS.UNREADABLE
         ? (read.reason || "The name couldn't be made out on this photo — check it by hand.")
         : null,
@@ -199,6 +223,21 @@ function passportPhotoUrl(submission) {
   return null;
 }
 
+// The passport number as typed on the application form — the value the
+// comparison is against. Matched by label, like every other form lookup here.
+function formPassportNumber(submission) {
+  const answers = submission?.answers || {};
+  for (const key of Object.keys(answers)) {
+    const a = answers[key] || {};
+    const label = String(a.text || a.name || "");
+    if (!/passport/i.test(label) || !/number|no\b|#/i.test(label)) continue;
+    const v = a.answer;
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number") return String(v);
+  }
+  return "";
+}
+
 // Jotform-hosted files need the API key appended server-side.
 async function fetchImage(url) {
   let target = url;
@@ -241,19 +280,20 @@ function guessMedia(url) {
 // Asks the model for the name only, as strict JSON. The machine-readable zone
 // is preferred when it's legible because that's what the airline's system
 // reads; the printed page is the fallback.
-const PROMPT = `You are reading the photo page of a passport to extract ONLY the holder's name.
+const PROMPT = `You are reading the photo page of a passport to extract the holder's name and the passport number.
 
 Prefer the machine-readable zone (the two lines of monospaced text with << separators) when it is legible, since that is the authoritative form of the name. Otherwise read the printed "Surname" and "Given names" fields.
 
 Reply with ONLY a JSON object, no other text:
-{"readable": true|false, "surname": "", "given_names": "", "source": "mrz"|"printed", "reason": ""}
+{"readable": true|false, "surname": "", "given_names": "", "document_number": "", "source": "mrz"|"printed", "reason": ""}
 
 Rules:
 - "surname" is the family name; "given_names" is every given name, space separated.
 - In the MRZ, << separates surname from given names and < stands for a space. Convert them back.
 - Keep the passport's own spelling and order. Do not correct, expand or guess any part of a name.
 - If the image is not a passport, is too blurred, or the name cannot be made out with confidence, return {"readable": false, "surname": "", "given_names": "", "source": "", "reason": "<short reason>"}.
-- Never invent a name. An uncertain read must be reported as not readable.`;
+- "document_number" is the passport number: the field labelled Passport No. on the printed page, or characters 1-9 of the second MRZ line. Give it exactly as printed, without spaces. Leave it "" if you cannot read it confidently — a guessed number is worse than none.
+- Never invent a name or a number. An uncertain read must be reported as not readable.`;
 
 async function readPassportImage({ base64, mediaType }) {
   const base = (process.env.ANTHROPIC_API_BASE || "https://api.anthropic.com").replace(/\/+$/, "");
@@ -293,12 +333,13 @@ async function readPassportImage({ base64, mediaType }) {
 
   const parsed = parseJsonObject(text);
   if (!parsed || parsed.readable !== true) {
-    return { first: "", last: "", reason: (parsed && parsed.reason) || "" };
+    return { first: "", last: "", number: "", reason: (parsed && parsed.reason) || "" };
   }
 
   return {
     first: cleanNamePart(parsed.given_names),
     last: cleanNamePart(parsed.surname),
+    number: cleanDocNumber(parsed.document_number),
     source: parsed.source || "",
     reason: "",
   };
@@ -313,6 +354,12 @@ function parseJsonObject(text) {
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
   try { return JSON.parse(text.slice(start, end + 1)); } catch (_) { return null; }
+}
+
+// Passport numbers are alphanumeric; strip MRZ filler and any separators the
+// model echoed back.
+function cleanDocNumber(v) {
+  return String(v == null ? "" : v).toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
 // Names only: letters, spaces, hyphens and apostrophes. Anything else is OCR
