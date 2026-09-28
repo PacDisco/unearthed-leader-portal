@@ -740,6 +740,47 @@ test("a cache from before the date checks is re-read, not served as blanks", asy
   assert.equal(body.dobVerdict, DATE_VERDICT.MATCH);
 });
 
+test("a failed MRZ is retried once before giving up", async () => {
+  // Transcription slips are stochastic, so a second attempt often lands a
+  // clean one. The check digits still gate acceptance, so this raises the
+  // hit rate without lowering the bar.
+  let call = 0;
+  stubFetch();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("api.anthropic.com")) {
+      call++;
+      const good = mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" });
+      const payload = call === 1
+        ? { mrz_line1: MRZ_L1, mrz_line2: good.slice(0, 13) + "091227" + good.slice(19),
+            printed_surname: "SMITH", printed_given_names: "JONATHAN MICHAEL", readable: true }
+        : { mrz_line1: MRZ_L1, mrz_line2: good,
+            printed_surname: "SMITH", printed_given_names: "JONATHAN MICHAEL", readable: true };
+      return jsonRes({ content: [{ type: "text", text: JSON.stringify(payload) }] });
+    }
+    return realFetch(url, init);
+  };
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(call, 2, "a failed MRZ should be retried once");
+  assert.equal(body.verified, true);
+  assert.equal(body.passportDob, "2008-03-15");
+});
+
+test("an unverified read is flagged as such", async () => {
+  stubFetch({ visionReply: {
+    mrz_line1: "", mrz_line2: "",
+    printed_surname: "SHELTON", printed_given_names: "LUISA CHARLOTTE JULZ",
+    printed_number: "RB013901", readable: true, reason: "",
+  } });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.verified, false);
+  assert.equal(body.passportLast, "SHELTON");
+  // And the caveat has to be explicit — a row of blanks with no explanation
+  // is what made this confusing on screen.
+  assert.match(body.message, /NOT been verified/i);
+  assert.match(body.message, /left blank/i);
+});
+
 // --- 4. the ops tick --------------------------------------------------------
 
 function callVerify(email, payload) {

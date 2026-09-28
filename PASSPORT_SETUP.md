@@ -243,6 +243,25 @@ digits make that class of error visible.
 What the check digits do NOT cover: the nationality (unused) and the name
 line, which has none — hence the printed cross-check.
 
+**A failed MRZ is retried once.** Transcription slips are stochastic, so a
+second attempt (told which characters are commonly confused) often lands a
+clean one. The check digits still gate acceptance, so the retry raises the
+hit rate without lowering the bar. Only the rare double failure falls through
+to the unverified state.
+
+**When nothing verifies**, the panel header reads **NOT VERIFIED**, the
+number and dates show as *not found on the passport*, and the name is shown
+**without a USE THIS button**. The MRZ is what makes a value trustworthy
+enough to write onto a booking without anyone opening the document; without
+it, this system misread one surname three different ways (KUNZ, JUNE, JULZ).
+A leader who can see the document can still type the correct value through
+EDIT — the point is that the portal won't offer an unverified value as a
+one-click action.
+
+If a particular passport repeatedly fails to verify, the MRZ in that scan is
+not legible enough. A straight, well-lit photo of the data page — not a
+rotated scanner export — is the fix.
+
 ### Reading a rotated or bilingual scan
 
 The read is told the scan may be sideways or upside down, may be one page of

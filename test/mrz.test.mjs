@@ -141,6 +141,7 @@ test("a verified MRZ supplies the number and both dates", () => {
   assert.equal(r.dob, "2009-11-27");
   assert.equal(r.expiry, "2029-02-21");
   assert.equal(r.source, "mrz");
+  assert.equal(r.verified, true);
 });
 
 test("a printed name that disagrees with a verified MRZ yields NOTHING", () => {
@@ -163,7 +164,8 @@ test("no usable MRZ: a name is offered, dates and number are not", () => {
   assert.equal(r.dob, "");
   assert.equal(r.expiry, "");
   assert.equal(r.source, "printed");
-  assert.match(r.reason, /could not be verified and are left blank/i);
+  assert.match(r.reason, /could not be verified/i);
+  assert.equal(r.verified, false);
 });
 
 test("an MRZ that fails its check digits is treated as no MRZ", () => {

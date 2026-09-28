@@ -153,6 +153,14 @@ export async function handler(event) {
     let read;
     try {
       read = await readPassportFile(file);
+      // A failed MRZ is usually a slipped character, not an unreadable
+      // document — and the failure is stochastic, so one more attempt often
+      // lands a clean transcription. The check digits still decide whether
+      // we accept it, so this raises the hit rate without lowering the bar.
+      if (!read.verified) {
+        const second = await readPassportFile(file, { retry: true });
+        if (second.verified) read = second;
+      }
     } catch (err) {
       console.error("[read-passport] vision call failed:", err?.message || err);
       return json(200, {
@@ -197,6 +205,9 @@ export async function handler(event) {
       passportDob: read.dob || "",
       formExpiry: formExpiry || "",
       passportExpiry: read.expiry || "",
+      // Did the machine-readable zone verify? Drives whether the panel
+      // offers a one-click apply, or only shows the value for checking.
+      verified: !!read.verified,
       // The reason is surfaced even on a successful read: "the name is from
       // the printed page, the dates couldn't be verified" is exactly what a
       // leader needs to know before trusting a row.
@@ -422,7 +433,7 @@ Rules:
 - Set "readable": false only when you can read neither the MRZ nor the printed name.
 - Never invent or complete a character. A blank is always better than a guess: everything here is copied onto a booking, and a plausible-looking wrong value is worse than a missing one because nobody checks it again.`;
 
-async function readPassportFile({ base64, mediaType, isPdf }) {
+async function readPassportFile({ base64, mediaType, isPdf }, { retry = false } = {}) {
   const base = (process.env.ANTHROPIC_API_BASE || "https://api.anthropic.com").replace(/\/+$/, "");
   const model = process.env.PASSPORT_OCR_MODEL || "claude-sonnet-4-5";
 
@@ -442,7 +453,7 @@ async function readPassportFile({ base64, mediaType, isPdf }) {
           isPdf
             ? { type: "document", source: { type: "base64", media_type: mediaType, data: base64 } }
             : { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-          { type: "text", text: PROMPT },
+          { type: "text", text: retry ? `${PROMPT}\n\nA previous transcription of this document FAILED its check digits, which means at least one character of the machine-readable zone was copied wrongly. Read the two MRZ lines again, slowly, character by character. Pay particular attention to characters that look alike in this font: 0 and O, 1 and I, 5 and S, 8 and B, 2 and Z. Count the characters — each line is 44 long including the "<" fillers.` : PROMPT },
         ],
       }],
     }),
@@ -473,7 +484,7 @@ async function readPassportFile({ base64, mediaType, isPdf }) {
 //     disagreement means one of them was misread, so we return nothing
 // Exported for tests.
 export function interpretRead(parsed) {
-  const empty = { first: "", last: "", number: "", dob: "", expiry: "", source: "", reason: "" };
+  const empty = { first: "", last: "", number: "", dob: "", expiry: "", source: "", verified: false, reason: "" };
   if (!parsed) return { ...empty, reason: "the passport could not be read" };
 
   const printedFirst = cleanNamePart(parsed.printed_given_names);
@@ -483,6 +494,7 @@ export function interpretRead(parsed) {
   const mrz = parseMrz(parsed.mrz_line1, parsed.mrz_line2);
 
   if (mrz.ok) {
+    // eslint-disable-next-line no-unused-vars
     // The MRZ verified. Names still come from the printed page when they
     // agree with it — the printed page keeps accents and capitalisation that
     // the MRZ strips — but the MRZ is what decides they're right.
@@ -505,6 +517,7 @@ export function interpretRead(parsed) {
       dob: mrz.fields.dateOfBirth || "",
       expiry: mrz.fields.expiryDate || "",
       source: "mrz",
+      verified: true,
       reason: "",
     };
   }
@@ -530,7 +543,8 @@ export function interpretRead(parsed) {
     dob: "",
     expiry: "",
     source: "printed",
-    reason: `${mrzFailureReason(mrz)} The name below is from the printed page; the number and dates could not be verified and are left blank.`,
+    verified: false,
+    reason: `${mrzFailureReason(mrz)} The name shown is from the printed page and has NOT been verified — check it against the document before using it. The number and dates could not be verified at all, so they are left blank.`,
   };
 }
 

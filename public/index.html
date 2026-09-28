@@ -465,6 +465,7 @@
     .passport-table tbody tr.is-problem td { color: #8a5414; font-weight: 500; }
 
     .passport-cell-empty { color: #b0a99a; font-style: italic; font-size: 12px; }
+    .passport-unverified { color: #8a5414; font-weight: 600; letter-spacing: 1px; }
     .passport-cell-action { text-align: right; white-space: nowrap; width: 1%; }
     .passport-tick { color: #5b8f6a; font-size: 15px; }
 
@@ -5018,8 +5019,15 @@
     // useful as fixing a mistake — arguably more so, since a missing passport
     // number or date of birth stops a booking outright — and an empty field
     // is never a "mismatch", so it would otherwise never offer the button.
+    // An unverified read is shown so a leader can check it against the
+    // document, but it gets NO one-click apply. The machine-readable zone is
+    // what makes a value trustworthy enough to write onto a booking without
+    // anyone looking at the passport; without it, this has misread the same
+    // surname three different ways. EDIT is still there for typing what you
+    // can see on the document.
+    const verified = state.verified !== false;
     const appliable = (passportValue, recordValue, verdict) =>
-      !!passportValue && (verdictNeedsLook(verdict) || !String(recordValue || "").trim());
+      verified && !!passportValue && (verdictNeedsLook(verdict) || !String(recordValue || "").trim());
 
     return [
       {
@@ -5111,8 +5119,19 @@
       message = "Everything on record matches the passport.";
     }
 
+    // The read's own caveat — "the machine-readable zone didn't verify, so
+    // the number and dates are blank" — has to reach the leader. It was
+    // being computed server-side and then dropped here, which left an
+    // unexplained row of blanks.
+    if (state.message) {
+      message = message ? `${state.message} ${message}` : state.message;
+    }
+
     panel.innerHTML = `
-      <div class="passport-panel-label">PASSPORT CHECK</div>
+      <div class="passport-panel-label">PASSPORT CHECK${
+        state.verified === false && state.status === "ok"
+          ? ` <span class="passport-unverified">— NOT VERIFIED</span>` : ""
+      }</div>
       ${renderPassportTable(rows, state)}
       ${message ? `<div class="passport-panel-message">${attrEsc(message)}</div>` : ""}
       <div class="passport-panel-actions">
