@@ -212,6 +212,37 @@ two:
 
 A number missing from either side is `unknown`, never a mismatch.
 
+### How the read actually works
+
+The model is asked to **transcribe**, not to interpret. Its job is to copy the
+two lines of the machine-readable zone character by character, plus the
+printed surname, given names and number as a cross-check. Everything else is
+decided in code (`_shared/mrz.js`):
+
+1. The MRZ is parsed and its **check digits verified**. They cover the
+   passport number, the date of birth and the expiry, so a sloppy
+   transcription is detected rather than believed — one wrong character fails
+   a check digit about nine times in ten.
+2. When the MRZ verifies, it supplies the number and both dates. The name
+   comes from the printed page (which keeps accents and capitalisation the
+   MRZ strips) **but only if it agrees with the MRZ name**. Accent
+   differences and MRZ truncation are expected; different letters mean one
+   reading was wrong, and then nothing is offered at all.
+3. When the MRZ can't be read or fails its check digits, a **name** is still
+   offered from the printed page — a leader can judge a name against the
+   photo — but the number and dates are left blank and the panel says why.
+   Those are the values that were being misread, nothing can verify them, and
+   a wrong one is invisible once applied.
+
+This replaced asking the model directly for "the date of birth", which failed
+badly on a real rotated scan: a surname came back as KUNZ and then JUNE when
+the document said JUTZ, and a date of birth came back as the *expiry's* day
+and month with the birth year. Both were confident and wrong. The check
+digits make that class of error visible.
+
+What the check digits do NOT cover: the nationality (unused) and the name
+line, which has none — hence the printed cross-check.
+
 ### Reading a rotated or bilingual scan
 
 The read is told the scan may be sideways or upside down, may be one page of

@@ -155,6 +155,32 @@ const PORTAL_MEMBERS = [
   { toObjectId: "10",  associationTypes: [{ label: "Student" }] },
 ];
 
+// A valid TD3 MRZ for the fixture student, built with real check digits so
+// the parser accepts it the way it would accept a real passport.
+const MRZ_L1 = "P<NZLSMITH<<JONATHAN<MICHAEL<<<<<<<<<<<<<<<<";
+function mrzLine2({ number, dob, expiry }) {
+  const pad = (s, n) => String(s || "").padEnd(n, "<").slice(0, n);
+  const yymmdd = (iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso || "")
+    ? iso.slice(2, 4) + iso.slice(5, 7) + iso.slice(8, 10) : "<<<<<<";
+  const num = pad(number, 9);
+  const b = yymmdd(dob);
+  const e = yymmdd(expiry);
+  const personal = pad("", 14);
+  const body = num + cd(num) + "NZL" + b + cd(b) + "F" + e + cd(e) + personal + cd(personal);
+  return body + cd(num + cd(num) + b + cd(b) + e + cd(e) + personal + cd(personal));
+}
+function cd(input) {
+  const w = [7, 3, 1];
+  let sum = 0;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i];
+    const v = c >= "0" && c <= "9" ? c.charCodeAt(0) - 48
+      : c >= "A" && c <= "Z" ? c.charCodeAt(0) - 55 : 0;
+    sum += v * w[i % 3];
+  }
+  return String(sum % 10);
+}
+
 function jsonRes(body, ok = true, status = 200) {
   return { ok, status, json: async () => body, text: async () => JSON.stringify(body) };
 }
@@ -232,11 +258,15 @@ function stubFetch(opts = {}) {
       try { sent.visionBlocks = JSON.parse(body).messages[0].content.map(c => c.type); } catch (_) {}
       if (opts.visionFails) return jsonRes({ error: "boom" }, false, 500);
       const payload = opts.visionReply || {
-        readable: true, surname: "SMITH", given_names: "JONATHAN MICHAEL",
-        document_number: opts.docNumber === undefined ? "LA123456" : opts.docNumber,
-        date_of_birth: opts.docDob === undefined ? "2008-03-15" : opts.docDob,
-        expiry_date: opts.docExpiry === undefined ? "2030-06-01" : opts.docExpiry,
-        source: "mrz", reason: "",
+        mrz_line1: MRZ_L1,
+        mrz_line2: mrzLine2({
+          number: opts.docNumber === undefined ? "LA123456" : opts.docNumber,
+          dob: opts.docDob === undefined ? "2008-03-15" : opts.docDob,
+          expiry: opts.docExpiry === undefined ? "2030-06-01" : opts.docExpiry,
+        }),
+        printed_surname: "SMITH", printed_given_names: "JONATHAN MICHAEL",
+        printed_number: opts.docNumber === undefined ? "LA123456" : opts.docNumber,
+        readable: true, reason: "",
       };
       return jsonRes({ content: [{ type: "text", text: JSON.stringify(payload) }] });
     }
@@ -627,50 +657,65 @@ test("given names come back whole — the read never splits first from middle", 
   assert.equal(body.passportLast, "SMITH");
 });
 
-test("a name is transcribed verbatim — accents and punctuation survive", async () => {
+test("the printed name is kept verbatim when the MRZ agrees with it", () => {
+  // The MRZ strips accents and punctuation; the printed page doesn't. When
+  // they agree, the printed form is what gets stored — a booking should
+  // carry the name as the document prints it.
   stubFetch({ visionReply: {
-    readable: true, surname: "ST. JOHN-MÜLLER", given_names: "MARÍA JOSÉ",
-    document_number: "LA123456", date_of_birth: "2008-03-15", expiry_date: "2030-06-01",
-    source: "printed", reason: "",
+    mrz_line1: "P<NZLST<JOHN<MULLER<<MARIA<JOSE<<<<<<<<<<<<<",
+    mrz_line2: mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" }),
+    printed_surname: "ST. JOHN-MÜLLER", printed_given_names: "MARÍA JOSÉ",
+    printed_number: "LA123456", readable: true, reason: "",
   } });
-  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
-  // The old cleaner stripped everything outside [letters, space, hyphen,
-  // apostrophe], which turned "ST. JOHN-MÜLLER" into "ST JOHN-MÜLLER".
-  assert.equal(body.passportLast, "ST. JOHN-MÜLLER");
-  assert.equal(body.passportFirst, "MARÍA JOSÉ");
+  return callRead("leader@trip.example", { email: "mia@example.com" }).then(({ body }) => {
+    assert.equal(body.passportLast, "ST. JOHN-MÜLLER");
+    assert.equal(body.passportFirst, "MARÍA JOSÉ");
+  });
 });
 
-test("MRZ filler is decoded, but nothing else is altered", async () => {
+test("with no printed name, the MRZ name is used and its filler decoded", async () => {
   stubFetch({ visionReply: {
-    readable: true, surname: "VAN<DER<BERG", given_names: "JAN<PIETER",
-    document_number: "", date_of_birth: "", expiry_date: "", source: "mrz", reason: "",
+    mrz_line1: "P<NLDVAN<DER<BERG<<JAN<PIETER<<<<<<<<<<<<<<<",
+    mrz_line2: mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" }),
+    printed_surname: "", printed_given_names: "", printed_number: "",
+    readable: true, reason: "",
   } });
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
   assert.equal(body.passportLast, "VAN DER BERG");
   assert.equal(body.passportFirst, "JAN PIETER");
 });
 
-test("a passport number keeps its own punctuation and case", async () => {
+test("the passport number comes from the verified MRZ, not the printed read", async () => {
+  // If the printed read and the MRZ disagree on the number, the MRZ wins —
+  // it is the one with a check digit behind it.
   stubFetch({ visionReply: {
-    readable: true, surname: "SMITH", given_names: "JON",
-    document_number: "la-123456", date_of_birth: "", expiry_date: "", source: "printed", reason: "",
+    mrz_line1: MRZ_L1,
+    mrz_line2: mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" }),
+    printed_surname: "SMITH", printed_given_names: "JONATHAN MICHAEL",
+    printed_number: "LA123458",   // misread by one character
+    readable: true, reason: "",
   } });
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
-  assert.equal(body.passportNumber, "la-123456");
-  // Comparison is still case- and separator-insensitive, so this matches the
-  // "LA123456" on the form.
+  assert.equal(body.passportNumber, "LA123456");
   assert.equal(body.numberVerdict, NUMBER_VERDICT.MATCH);
 });
 
-test("a date that isn't returned in the exact requested form is dropped, never coerced", async () => {
+test("an unusable MRZ yields no dates and no number at all", async () => {
+  // Dates and numbers read off the printed page are exactly what was being
+  // misread, and nothing can verify them, so they are withheld rather than
+  // offered with a one-click APPLY beside them. The name still comes
+  // through — a leader can judge a name against the photo page by eye.
   stubFetch({ visionReply: {
-    readable: true, surname: "SMITH", given_names: "JON",
-    document_number: "LA123456", date_of_birth: "circa 2008", expiry_date: "2030/06/01",
-    source: "printed", reason: "",
+    mrz_line1: "", mrz_line2: "",
+    printed_surname: "SMITH", printed_given_names: "JON",
+    printed_number: "LA123456", readable: true, reason: "",
   } });
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
   assert.equal(body.passportDob, "");
   assert.equal(body.passportExpiry, "");
+  assert.equal(body.passportNumber, "");
+  assert.equal(body.passportLast, "SMITH");
+  assert.match(body.message, /could not be verified/i);
 });
 
 test("a cache from before the date checks is re-read, not served as blanks", async () => {
