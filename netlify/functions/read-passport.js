@@ -28,7 +28,7 @@ import { authenticate } from "./_shared/auth.js";
 import { resolveRosterEditAccess } from "./_shared/portal-access.js";
 import { APPLICATION_FORM_IDS_CSV } from "./_shared/application-forms.js";
 import { findSubmissionByEmail } from "./lib/jotform.js";
-import { parseMrz } from "./_shared/mrz.js";
+import { parseMrzWithRepair } from "./_shared/mrz.js";
 import { isPassportDriveUrl, fetchPassportDriveFile } from "./_shared/passport-widget.js";
 import {
   PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT, DATE_VERDICT,
@@ -517,7 +517,10 @@ export function interpretRead(parsed) {
   const empty = { first: "", last: "", number: "", dob: "", expiry: "", source: "", verified: false, reason: "" };
   if (!parsed) return { ...empty, reason: "the passport could not be read" };
 
-  const mrz = parseMrz(parsed.mrz_line1, parsed.mrz_line2);
+  // Check digits first on the exact copy; if that fails, on structural
+  // repairs only (miscounted fillers, O-for-0 in a date) — see mrz.js.
+  const mrz = parseMrzWithRepair(parsed.mrz_line1, parsed.mrz_line2);
+  if (mrz.ok && mrz.repaired) console.info("[read-passport] MRZ verified after filler/look-alike repair");
 
   // Diagnostics for a failed read. Without these there is no way to tell a
   // transcription that was one character out from one that was garbage —

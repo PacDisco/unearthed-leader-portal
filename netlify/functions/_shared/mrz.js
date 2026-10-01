@@ -193,3 +193,81 @@ function namesFromLine1(l1) {
     issuingState: l1.slice(2, 5).replace(/</g, ""),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Structural repair of a transcription that failed its check digits.
+//
+// The common real failures are not misread data — they're miscounted
+// FILLERS. Line 2 of most passports ends in a run of ~15 identical "<"
+// characters (the empty personal-number field), and a vision model reading a
+// sideways scan drops or adds one. That shifts the last two check digits and
+// fails a transcription whose every data character was right. The other is a
+// letter in a field that can only hold digits (O for 0 in a date).
+//
+// Only edits that cannot change the information are made:
+//   - the personal-number area is re-padded to its fixed 14 characters when
+//     it holds nothing but fillers
+//   - a passport number shorter than 9 characters gets its trailing filler
+//     back when that's the only way the fixed fields line up
+//   - look-alike letters in DIGIT-ONLY positions (dates, check digits) become
+//     the digit they look like, and look-alike digits in LETTER-ONLY positions
+//     (nationality, sex) become letters
+// The passport number's own characters are never changed, and the names are
+// never touched. A repaired candidate is used only if EVERY check digit,
+// including the overall one, passes — the same bar as an untouched read.
+// Returns [] when nothing applies.
+
+const TO_DIGIT = { O: "0", D: "0", Q: "0", I: "1", L: "1", Z: "2", S: "5", G: "6", B: "8" };
+const TO_LETTER = { "0": "O", "1": "I", "2": "Z", "5": "S", "8": "B" };
+const DIGIT_POSITIONS = [9, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27];
+const LETTER_POSITIONS = [10, 11, 12];
+
+function fixLine2Characters(l2) {
+  const chars = l2.split("");
+  for (const i of DIGIT_POSITIONS) if (TO_DIGIT[chars[i]]) chars[i] = TO_DIGIT[chars[i]];
+  for (const i of LETTER_POSITIONS) if (TO_LETTER[chars[i]]) chars[i] = TO_LETTER[chars[i]];
+  if (chars[20] === "0") chars[20] = "<"; // sex: M, F, X or filler
+  return chars.join("");
+}
+
+// Re-pads the tail of line 2 (positions 28–43) when the personal-number area
+// is all fillers. `rest` is everything after the expiry check digit.
+function refillTail(head28, rest) {
+  if (rest.length < 2) return null;
+  const last2 = rest.slice(-2);
+  const middle = rest.slice(0, -2);
+  if (middle.replace(/</g, "") !== "") return null; // a real personal number: leave it
+  return head28 + "<".repeat(14) + last2;
+}
+
+export function repairMrzCandidates(line1, line2) {
+  const raw = String(line2 == null ? "" : line2).toUpperCase().replace(/\s+/g, "");
+  if (!raw) return [];
+  const out = new Set();
+
+  const heads = [raw];
+  // Passport number with its trailing filler dropped: the check digit then
+  // sits at index 8 and the nationality starts at 9.
+  if (/^[A-Z0-9]{8}[0-9A-Z][A-Z]{3}/.test(raw) && raw[8] !== "<") heads.push(raw.slice(0, 8) + "<" + raw.slice(8));
+
+  for (const h of heads) {
+    const fixed = fixLine2Characters(h.padEnd(30, "<"));
+    const refilled = refillTail(fixed.slice(0, 28), fixed.slice(28));
+    if (refilled) out.add(refilled);
+    if (fixed.length === 44) out.add(fixed);
+  }
+  out.delete(tidyLine(line2));
+  return [...out].map(l2 => [line1, l2]);
+}
+
+// parseMrz, then — only if that fails — each structural repair in turn.
+// `repaired` says which happened, for logging.
+export function parseMrzWithRepair(line1, line2, now = new Date()) {
+  const direct = parseMrz(line1, line2, now);
+  if (direct.ok) return { ...direct, repaired: false };
+  for (const [l1, l2] of repairMrzCandidates(line1, line2)) {
+    const attempt = parseMrz(l1, l2, now);
+    if (attempt.ok) return { ...attempt, repaired: true };
+  }
+  return { ...direct, repaired: false };
+}

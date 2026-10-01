@@ -158,5 +158,48 @@ test("nothing at all returns nothing", () => {
   assert.equal(interpretRead(null).first, "");
 });
 
+// --- structural repair (fillers, look-alikes) --------------------------------
+// Sideways scans of this exact passport kept failing with every data
+// character right: the run of ~15 fillers at the end of line 2 was miscounted.
+
+const HEAD = "RB013901<0NZL0911278F2902212";
+
+test("one filler short in the personal-number area is repaired", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: HEAD + "<".repeat(13) + "00", found: true });
+  assert.equal(r.verified, true);
+  assert.equal(r.number, "RB013901");
+  assert.equal(r.dob, "2009-11-27");
+  assert.equal(r.expiry, "2029-02-21");
+});
+
+test("extra fillers in the personal-number area are repaired", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: HEAD + "<".repeat(17) + "00", found: true });
+  assert.equal(r.verified, true);
+});
+
+test("a letter O in a date is read as zero", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: "RB013901<0NZLO911278F29O2212" + "<".repeat(14) + "00", found: true });
+  assert.equal(r.verified, true);
+  assert.equal(r.dob, "2009-11-27");
+});
+
+test("a passport number missing its trailing filler is realigned", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: "RB0139010NZL0911278F2902212" + "<".repeat(14) + "00", found: true });
+  assert.equal(r.verified, true);
+  assert.equal(r.number, "RB013901");
+});
+
+test("a genuinely wrong digit is still refused after repair", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: "RB013901<0NZL0911288F2902212" + "<".repeat(13) + "00", found: true });
+  assert.equal(r.verified, false);
+  assert.equal(r.dob, "");
+});
+
+test("a wrong character in the passport number is never repaired", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: "RB0I3901<0NZL0911278F2902212" + "<".repeat(14) + "00", found: true });
+  assert.equal(r.verified, false);
+  assert.equal(r.number, "");
+});
+
 run();
 console.log(`\n${passed} passed`);

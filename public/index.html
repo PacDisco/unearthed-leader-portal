@@ -5138,7 +5138,9 @@
     // the number and dates are blank" — has to reach the leader. It was
     // being computed server-side and then dropped here, which left an
     // unexplained row of blanks.
-    if (state.message) {
+    // Skip it when the status branch above already used it as the message,
+    // or it shows twice.
+    if (state.message && !message.includes(state.message)) {
       message = message ? `${state.message} ${message}` : state.message;
     }
 
