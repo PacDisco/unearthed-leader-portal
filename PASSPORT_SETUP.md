@@ -232,117 +232,62 @@ two:
 
 A number missing from either side is `unknown`, never a mismatch.
 
-### How the read actually works
+### How the read works
 
-The model is asked to **transcribe**, not to interpret. Its job is to copy the
-two lines of the machine-readable zone character by character, plus the
-printed surname, given names and number as a cross-check. Everything else is
-decided in code (`_shared/mrz.js`):
+**The machine-readable zone, or nothing.** The model's entire job is to copy
+the two lines of monospaced characters across the bottom of the data page. It
+is not asked to find the date of birth, decide which date is the expiry, or
+read the printed fields at all. Everything else happens in code
+(`_shared/mrz.js`):
 
-1. The MRZ is parsed and its **check digits verified**. They cover the
-   passport number, the date of birth and the expiry, so a sloppy
+1. The two lines are parsed and their **check digits verified**. They cover
+   the passport number, the date of birth and the expiry, so a sloppy
    transcription is detected rather than believed — one wrong character fails
    a check digit about nine times in ten.
-2. When the MRZ verifies, it supplies the number and both dates. The name
-   comes from the printed page (which keeps accents and capitalisation the
-   MRZ strips) **but only if it agrees with the MRZ name**. Accent
-   differences and MRZ truncation are expected; different letters mean one
-   reading was wrong, and then nothing is offered at all.
-3. When the MRZ can't be read or fails its check digits, a **name** is still
-   offered from the printed page — a leader can judge a name against the
-   photo — but the number and dates are left blank and the panel says why.
-   Those are the values that were being misread, nothing can verify them, and
-   a wrong one is invisible once applied.
+2. If they verify, the name, number and both dates all come from the MRZ.
+3. If they don't, **nothing is shown** — no name, no number, no dates — only
+   an instruction to upload a photo with both lines in frame.
 
-This replaced asking the model directly for "the date of birth", which failed
-badly on a real rotated scan: a surname came back as KUNZ and then JUNE when
-the document said JUTZ, and a date of birth came back as the *expiry's* day
-and month with the birth year. Both were confident and wrong. The check
-digits make that class of error visible.
+The whole record is accepted or refused together. The name line carries no
+check digit of its own, but a transcription clean enough to pass every check
+digit in line 2 is strong evidence that line 1 was read with the same care.
 
-What the check digits do NOT cover: the nationality (unused) and the name
-line, which has none — hence the printed cross-check.
+This replaced asking the model for the fields directly, which failed badly on
+real scans: a surname came back as KUNZ, then JUNE, then JULZ when the
+document said JUTZ, and a date of birth came back as the *expiry's* day and
+month with the birth year. Every one was confident and wrong. It also
+replaced a set of printed-page fallbacks, which could only ever produce
+answers nothing had verified.
 
-**A cropped photo is handled specially.** The MRZ is two lines: the top one
-carries the names, the bottom one carries the passport number, both dates and
-*every* check digit. Photos commonly cut off the bottom line. When that
-happens the names are still perfectly readable, so if the printed page and
-MRZ line 1 agree — two independent readings — the name is treated as
-corroborated and can be applied. The number and dates exist only on the
-missing line, so there is nothing to offer and nothing to verify, and the
-panel says so and asks for a photo showing both lines.
+**Names come out as the MRZ writes them**: upper case, accents stripped
+(`MÜLLER` → `MULLER`), and truncated past 39 characters. That is the form an
+airline matches against, so it is the right form for a booking — but it does
+mean applying a name writes the upper-case version to HubSpot.
 
-**A failed MRZ is retried once.** Transcription slips are stochastic, so a
-second attempt (told which characters are commonly confused) often lands a
-clean one. The check digits still gate acceptance, so the retry raises the
-hit rate without lowering the bar. Only the rare double failure falls through
-to the unverified state.
-
-**When nothing verifies**, the panel header reads **NOT VERIFIED**, the
-number and dates show as *not found on the passport*, and the name is shown
-**without a USE THIS button**. The MRZ is what makes a value trustworthy
-enough to write onto a booking without anyone opening the document; without
-it, this system misread one surname three different ways (KUNZ, JUNE, JULZ).
-A leader who can see the document can still type the correct value through
-EDIT — the point is that the portal won't offer an unverified value as a
-one-click action.
-
-### When a passport won't verify
-
-Four things differ between a person reading a scan and this integration
-reading it, in rough order of impact:
-
-1. **The model.** `PASSPORT_OCR_MODEL` defaults to `claude-sonnet-4-5`. The
-   MRZ is 44 characters of dense monospace, and a harder scan may need a
-   stronger vision model. This is the one setting that changes the outcome
-   without changing the document — set it to the best vision model on your
-   Anthropic account and re-read a known-bad scan to compare.
-2. **Resolution.** A photo pasted into a chat window arrives at full size. A
-   TapScanner PDF of a two-page spread is rendered down before the model sees
-   it, which can leave the MRZ at very few pixels per character. A straight,
-   well-lit photo of the data page alone — not a rotated two-page scanner
-   export — is the single biggest improvement available on the upload side.
-3. **Rotation.** The prompt handles it, but a sideways page is measurably
-   harder to read than an upright one.
-4. **Context.** A person checking a scan can see the name already on the
-   record and match against it. The read deliberately gets no such hint —
-   giving it one would turn a verification into a confirmation of whatever
-   was already there, which is the opposite of the point.
-
-**Diagnosing a specific failure.** A failed read logs a masked summary to the
-Netlify function log: which check digits failed, the length of each
-transcribed line, whether the characters were valid MRZ characters at all,
-and the first and last few characters of each line. The identifying middle —
-number, date of birth — is deliberately not logged.
-
-Read it like this:
-- lines of 44 valid characters, one check digit failing → a single character
-  slipped; a stronger model or a better scan will fix it
-- short, truncated or non-MRZ characters → the model never found the zone;
-  the scan is the problem, not the model
-- `line2.length` 0 → the photo is cropped above the bottom MRZ line
-- `line1.starts` not `P<` or `PP` → it read the wrong part of the page
-  (New Zealand issues both type prefixes)
+**A failed read is retried once**, told which characters are commonly
+confused. Transcription slips are stochastic, so a second attempt often lands
+clean, and the check digits still gate acceptance.
 
 ### Reading a rotated or bilingual scan
 
 The read is told the scan may be sideways or upside down, may be one page of
-several, and may show two pages at once. It is also told that passports are
-often bilingual — a New Zealand passport labels every field twice
-("Rā mutunga / Date of expiry") — and to identify fields by the English label,
-taking care not to read **Date of issue** as the expiry.
+several, and may show two pages at once — it has to find those two lines
+whatever the orientation. It is explicitly told not to reconstruct a missing
+line from the printed fields: a missing line is a fact worth reporting, and an
+invented one is worse than useless.
 
-Names come from the printed fields and are then checked against the
-machine-readable zone. Accent differences (MÜLLER vs MULLER) and MRZ
-truncation are expected and ignored, but if the letters genuinely disagree the
-read reports itself unreadable rather than picking one — a misread surname is
-the single most expensive thing this can get wrong.
+### What to ask people to upload
 
-Dates and the passport number come from the MRZ, where the positions are
-fixed, with the century confirmed against the printed four-digit year. The
-printed fields are the fallback when the MRZ is illegible.
+Everything depends on the machine-readable zone being in the photo, so the
+upload instruction matters more than anything in this code:
 
-### When the cache is not used
+> A straight-on photo of the page with your photo on it, including the two
+> lines of letters and chevrons at the very bottom — all of it in frame, not
+> at an angle.
+
+A photo cropped above those lines yields nothing at all, by design.
+
+### When the cache is not used### When the cache is not used
 
 A cached result is only served when it holds **every** verdict currently
 reported. A record read before the date checks shipped has no dob or expiry

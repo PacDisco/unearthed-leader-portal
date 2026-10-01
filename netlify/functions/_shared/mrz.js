@@ -19,9 +19,11 @@
 //
 //   WHAT THE CHECK DIGITS DO AND DON'T COVER: they protect the passport
 //   number, the date of birth, the expiry and the personal-number field.
-//   They do NOT cover the nationality (which we don't use) or the NAME line,
-//   which has no check digit at all. The name is therefore cross-checked
-//   against the printed page instead — see printedNameAgrees() below.
+//   They do NOT cover the nationality (which we don't use) or the NAME line.
+//   A name is therefore only as good as the transcription of line 1 — but a
+//   transcription clean enough to pass every check digit in line 2 is strong
+//   evidence that line 1 was read with the same care, which is why the whole
+//   record is accepted or refused together rather than field by field.
 //
 // Supported: TD3 (passport booklets, 2 lines of 44). TD1/TD2 are ID cards,
 // which is not what gets uploaded here.
@@ -111,14 +113,15 @@ export function parseMrz(line1, line2, now = new Date()) {
   }
 
   if (line1Usable && !line2Usable) {
-    const names = namesFromLine1(l1);
+    // Line 1 holds the names, but every check digit lives in line 2 — so
+    // without it nothing here can be verified, and unverified passport data
+    // is not something this portal offers. The names are still parsed so a
+    // caller can log what was seen, but `ok` stays false.
     return {
       ok: false,
-      // The names are readable; nothing else is. The caller decides what to
-      // do with that — see interpretRead in read-passport.js.
       nameOnly: true,
       failures: [l2 ? "the second MRZ line is not a valid MRZ line" : "the second MRZ line is missing (the photo may be cropped)"],
-      fields: { ...names, documentNumber: "", nationality: "", sex: "", dateOfBirth: null, expiryDate: null },
+      fields: { ...namesFromLine1(l1), documentNumber: "", nationality: "", sex: "", dateOfBirth: null, expiryDate: null },
     };
   }
 
@@ -189,29 +192,4 @@ function namesFromLine1(l1) {
     givenNames: decodeNamePart(split >= 0 ? nameField.slice(split + 2) : ""),
     issuingState: l1.slice(2, 5).replace(/</g, ""),
   };
-}
-
-// Does a name read off the printed page agree with the one in the MRZ?
-//
-// The MRZ is a transliteration, so three differences are expected and are NOT
-// disagreements: accents are stripped (MÜLLER → MULLER), punctuation becomes
-// filler, and a long name is truncated to fit 39 characters. Anything else —
-// different letters — means one of the two was misread, which is exactly the
-// failure this is here to catch.
-export function printedNameAgrees(printed, fromMrz) {
-  const norm = (s) => String(s == null ? "" : s)
-    .normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .toUpperCase()
-    .replace(/['’`]/g, "")
-    .replace(/[^A-Z]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const p = norm(printed);
-  const m = norm(fromMrz);
-  if (!p || !m) return true;           // nothing to compare against
-  if (p === m) return true;
-  // MRZ truncation: the MRZ version is a prefix of the printed one.
-  if (p.startsWith(m) || m.startsWith(p)) return true;
-  return false;
 }

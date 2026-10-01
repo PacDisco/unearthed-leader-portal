@@ -5040,8 +5040,8 @@
       return "unknown";                              // nothing was compared
     };
 
-    const appliable = (passportValue, recordValue, verdict, trusted = verified) =>
-      trusted && !!passportValue && (verdictNeedsLook(verdict) || !String(recordValue || "").trim());
+    const appliable = (passportValue, recordValue, verdict) =>
+      verified && !!passportValue && (verdictNeedsLook(verdict) || !String(recordValue || "").trim());
 
     return [
       {
@@ -5050,9 +5050,7 @@
         onRecord: recorded,
         onPassport: state.passportName || "",
         verdict: nameVerdict,
-        // The name can be trusted without the check digits when the printed
-        // page and MRZ line 1 agree — two independent readings of it.
-        canApply: appliable(state.passportFirst, recorded, nameVerdict, state.nameVerified !== false && (verified || !!state.nameVerified)),
+        canApply: appliable(state.passportFirst, recorded, nameVerdict),
       },
       {
         key: "number",
@@ -5207,7 +5205,7 @@
     // actually know.
     if (state.status === "no_photo") return "no passport uploaded";
     if (state.status === "unsupported") return "file can't be read";
-    if (state.status === "unreadable") return "couldn't be made out";
+    if (state.status === "unreadable") return "not read — see below";
     if (state.status === "error") return "not read — try again";
 
     // A cached view carries verdicts, not values. A verdict of "unknown"

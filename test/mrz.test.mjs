@@ -18,7 +18,7 @@ process.env.HUBSPOT_API_KEY = "hs";
 process.env.JOTFORM_API_KEY = "jf";
 process.env.ANTHROPIC_API_KEY = "sk";
 
-const { parseMrz, checkDigit, printedNameAgrees } =
+const { parseMrz, checkDigit } =
   await import("../netlify/functions/_shared/mrz.js");
 const { interpretRead } = await import("../netlify/functions/read-passport.js");
 
@@ -107,139 +107,54 @@ test("junk is refused rather than half-parsed", () => {
   assert.equal(parseMrz(L1, null, NOW).ok, false);
 });
 
-// --- printed vs MRZ ---------------------------------------------------------
-
-test("accents and truncation are not disagreements", () => {
-  assert.equal(printedNameAgrees("MÜLLER", "MULLER"), true);
-  assert.equal(printedNameAgrees("O'Brien", "OBRIEN"), true);
-  assert.equal(printedNameAgrees("Jean-Pierre", "JEAN PIERRE"), true);
-  // MRZ truncates long names to fit 39 characters.
-  assert.equal(printedNameAgrees("MARIA CHARLOTTE ALEXANDRA", "MARIA CHARLOTTE"), true);
-});
-
-test("different letters ARE a disagreement", () => {
-  assert.equal(printedNameAgrees("JUNE", "JUTZ"), false);
-  assert.equal(printedNameAgrees("KUNZ", "JUTZ"), false);
-});
-
-test("a cropped photo still yields the name from line 1", () => {
-  // The real case: a photo of the data page cut off above the bottom MRZ
-  // line. Names live in line 1, so they are perfectly readable — returning
-  // nothing would throw away the half of the document that WAS captured.
-  const r = parseMrz("PPNZLCOTTLE<<SAMUEL<JAMES<<<<<<<<<<<<<<<<<<<", "", NOW);
-  assert.equal(r.ok, false);
-  assert.equal(r.nameOnly, true);
-  assert.equal(r.fields.surname, "COTTLE");
-  assert.equal(r.fields.givenNames, "SAMUEL JAMES");
-  assert.match(r.failures[0], /second MRZ line is missing/);
-});
-
-test("both document-type prefixes are handled", () => {
-  // New Zealand issues both "P<" and "PP" in the type field — seen on two
-  // passports from the same country a year apart.
-  assert.equal(parseMrz("P<NZLSHELTON<<LUISA<<<<<<<<<<<<<<<<<<<<<<<<<", "", NOW).fields.surname, "SHELTON");
-  assert.equal(parseMrz("PPNZLCOTTLE<<SAMUEL<<<<<<<<<<<<<<<<<<<<<<<<<", "", NOW).fields.surname, "COTTLE");
-});
-
 // --- interpreting a read ----------------------------------------------------
 
 function read(overrides = {}) {
   return interpretRead({
-    mrz_line1: L1, mrz_line2: L2,
-    printed_surname: "SHELTON", printed_given_names: "LUISA CHARLOTTE JUTZ",
-    printed_number: "RB013901", readable: true, reason: "",
+    mrz_line1: L1, mrz_line2: L2, found: true, reason: "",
     ...overrides,
   });
 }
 
-test("a verified MRZ supplies the number and both dates", () => {
+test("a verified MRZ supplies the name, number and both dates", () => {
   const r = read();
   assert.equal(r.last, "SHELTON");
   assert.equal(r.first, "LUISA CHARLOTTE JUTZ");
   assert.equal(r.number, "RB013901");
   assert.equal(r.dob, "2009-11-27");
   assert.equal(r.expiry, "2029-02-21");
-  assert.equal(r.source, "mrz");
   assert.equal(r.verified, true);
 });
 
-test("a printed name that disagrees with a verified MRZ yields NOTHING", () => {
-  // The exact failure that put "SHELTON, LUISA CHARLOTTE JUNE" on screen.
-  // One of the two readings is wrong and we cannot tell which, so we refuse
-  // to offer either rather than inviting a click that books a wrong name.
-  const r = read({ printed_given_names: "LUISA CHARLOTTE JUNE" });
+test("a failed check digit yields NOTHING, not a partial answer", () => {
+  // The whole record is accepted or refused together. A transcription clean
+  // enough to pass every check digit is evidence the name line was read with
+  // the same care; one that fails is evidence it wasn't.
+  const r = read({ mrz_line2: L2.slice(0, 13) + "091227" + L2.slice(19) });
   assert.equal(r.first, "");
   assert.equal(r.last, "");
-  assert.equal(r.dob, "");
-  assert.match(r.reason, /disagree/i);
-});
-
-test("line 1 only: the name is corroborated, the number and dates are not", () => {
-  // Printed page and MRZ line 1 agree — two independent readings — so the
-  // name is trustworthy enough to apply even though no check digit ran.
-  const r = interpretRead({
-    mrz_line1: "PPNZLCOTTLE<<SAMUEL<JAMES<<<<<<<<<<<<<<<<<<<", mrz_line2: "",
-    printed_surname: "COTTLE", printed_given_names: "SAMUEL JAMES",
-    printed_number: "RB739217", readable: true,
-  });
-  assert.equal(r.last, "COTTLE");
-  assert.equal(r.first, "SAMUEL JAMES");
-  assert.equal(r.nameVerified, true);
-  assert.equal(r.verified, false, "nothing was check-digit verified");
   assert.equal(r.number, "");
   assert.equal(r.dob, "");
-  assert.match(r.reason, /BOTH bottom lines/);
-});
-
-test("line 1 only, disagreeing with the printed name: nothing is offered", () => {
-  const r = interpretRead({
-    mrz_line1: "PPNZLCOTTLE<<SAMUEL<JAMES<<<<<<<<<<<<<<<<<<<", mrz_line2: "",
-    printed_surname: "COTTLE", printed_given_names: "SAMUEL JOHN",
-    readable: true,
-  });
-  assert.equal(r.first, "");
-  assert.match(r.reason, /does not match/i);
-});
-
-test("no usable MRZ at all: a name is offered, dates and number are not", () => {
-  // Dates and numbers off the printed page are precisely what was being
-  // misread, and nothing can verify them. A name can at least be eyeballed.
-  const r = read({ mrz_line1: "", mrz_line2: "" });
-  assert.equal(r.first, "LUISA CHARLOTTE JUTZ");
-  assert.equal(r.number, "");
-  assert.equal(r.dob, "");
-  assert.equal(r.expiry, "");
-  assert.equal(r.source, "printed");
-  assert.match(r.reason, /could not be verified/i);
   assert.equal(r.verified, false);
-});
-
-test("an MRZ that fails its check digits is treated as no MRZ", () => {
-  const r = read({ mrz_line2: L2.slice(0, 13) + "091227" + L2.slice(19) });
-  assert.equal(r.number, "");
-  assert.equal(r.dob, "");
   assert.match(r.reason, /check digits failed/i);
+  assert.match(r.reason, /BOTH lines/i);
 });
 
-test("the printed page keeps its accents when the MRZ agrees", () => {
-  const l1 = "P<NZLMULLER<<ANNA<<<<<<<<<<<<<<<<<<<<<<<<<<<";
-  const l2 = "RB013901<0NZL0911278F2902212<<<<<<<<<<<<<<00";
-  const r = interpretRead({
-    mrz_line1: l1, mrz_line2: l2,
-    printed_surname: "MÜLLER", printed_given_names: "Anna",
-    printed_number: "RB013901", readable: true,
-  });
-  assert.equal(r.last, "MÜLLER", "the accented printed form should win over the MRZ transliteration");
-  assert.equal(r.first, "Anna");
-});
-
-test("nothing readable at all returns nothing", () => {
-  const r = interpretRead({
-    mrz_line1: "", mrz_line2: "", printed_surname: "", printed_given_names: "",
-    readable: false, reason: "photo too blurred",
-  });
+test("a cropped photo asks for a better one", () => {
+  const r = read({ mrz_line2: "" });
   assert.equal(r.first, "");
-  assert.match(r.reason, /blurred/);
+  assert.match(r.reason, /top line/i);
+  assert.match(r.reason, /BOTH lines/i);
+});
+
+test("the model reporting it couldn't see the zone is passed through", () => {
+  const r = read({ mrz_line1: "", mrz_line2: "", found: false, reason: "the page is cut off" });
+  assert.equal(r.first, "");
+  assert.match(r.reason, /cut off/);
+  assert.match(r.reason, /BOTH lines/i);
+});
+
+test("nothing at all returns nothing", () => {
   assert.equal(interpretRead(null).first, "");
 });
 

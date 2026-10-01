@@ -28,7 +28,7 @@ import { authenticate } from "./_shared/auth.js";
 import { resolveRosterEditAccess } from "./_shared/portal-access.js";
 import { APPLICATION_FORM_IDS_CSV } from "./_shared/application-forms.js";
 import { findSubmissionByEmail } from "./lib/jotform.js";
-import { parseMrz, printedNameAgrees } from "./_shared/mrz.js";
+import { parseMrz } from "./_shared/mrz.js";
 import {
   PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT, DATE_VERDICT,
   buildOcrPatch, shapePassportState, compareDocumentNumbers, compareDates,
@@ -210,9 +210,6 @@ export async function handler(event) {
       // Did the machine-readable zone verify? Drives whether the panel
       // offers a one-click apply, or only shows the value for checking.
       verified: !!read.verified,
-      // The name alone can be corroborated without the check digits, when
-      // the printed page and MRZ line 1 agree.
-      nameVerified: !!read.verified || !!read.nameVerified,
       // The reason is surfaced even on a successful read: "the name is from
       // the printed page, the dates couldn't be verified" is exactly what a
       // leader needs to know before trusting a row.
@@ -419,24 +416,21 @@ function guessMedia(url) {
 // Asks the model for the name only, as strict JSON. The machine-readable zone
 // is preferred when it's legible because that's what the airline's system
 // reads; the printed page is the fallback.
-const PROMPT = `You are TRANSCRIBING a passport. You are not interpreting it. Copy characters; do not decide what anything means.
+const PROMPT = `Your ONLY job is to copy the two lines of the machine-readable zone from a passport. Nothing else on the page matters.
 
-The scan may be ROTATED (sideways or upside down), may be one page of several, and may show two pages at once. Find the passport data page whatever its orientation.
+The machine-readable zone is the block of monospaced characters across the very bottom of the passport's data page. It is two lines, each 44 characters long, made up only of A-Z, 0-9 and the filler character "<". The first line starts with P. The second line starts with the passport number.
 
-YOUR MAIN JOB is the machine-readable zone: the two lines of monospaced characters across the bottom of the data page, made up of A-Z, 0-9 and the filler character "<". Copy each line EXACTLY, character by character, including every "<". Do not insert spaces, do not tidy, do not drop trailing fillers, do not correct anything that looks wrong. Each line is 44 characters on a passport. These lines carry check digits, so an exact copy can be verified and an inexact one will be rejected — a careful character-by-character transcription is far more valuable here than a plausible one.
+The scan may be ROTATED (sideways or upside down), may be one page of several, and may show two pages at once. Find those two lines whatever the orientation.
 
-Also copy the PRINTED fields as a cross-check.
+Copy each line EXACTLY, character by character, including every "<". Do not insert spaces. Do not tidy. Do not drop trailing fillers. Do not correct anything that looks wrong to you.
 
 Reply with ONLY a JSON object, no other text:
-{"mrz_line1": "", "mrz_line2": "", "printed_surname": "", "printed_given_names": "", "printed_number": "", "readable": true|false, "reason": ""}
+{"mrz_line1": "", "mrz_line2": "", "found": true|false, "reason": ""}
 
 Rules:
-- "mrz_line1" starts with P. "mrz_line2" starts with the passport number.
-- If the MRZ is cut off, blurred or absent, leave both MRZ fields "" and still give the printed fields.
-- Printed names: exactly as shown in the "Surname" and "Given names" fields, keeping accents, hyphens, apostrophes and capitalisation. Do NOT split given names into first and middle — the passport does not, and neither should you.
-- Many passports are bilingual and label every field twice ("Rā mutunga / Date of expiry"). Use the English label. Do not confuse Date of issue with Date of expiry.
-- Set "readable": false only when you can read neither the MRZ nor the printed name.
-- Never invent or complete a character. A blank is always better than a guess: everything here is copied onto a booking, and a plausible-looking wrong value is worse than a missing one because nobody checks it again.`;
+- These lines carry check digits, so an exact copy can be verified and an inexact one will be rejected. A careful character-by-character transcription is worth far more than a plausible one.
+- If you cannot see BOTH lines in full — the photo is cropped, blurred, or the zone is cut off — set "found": false, say so in "reason", and leave the lines "". Do not reconstruct a line from the printed fields elsewhere on the page. A missing line is a fact worth reporting; an invented one is worse than useless, because everything here is copied onto a booking.
+- Never invent or complete a character.`;
 
 async function readPassportFile({ base64, mediaType, isPdf }, { retry = false } = {}) {
   const base = (process.env.ANTHROPIC_API_BASE || "https://api.anthropic.com").replace(/\/+$/, "");
@@ -492,15 +486,11 @@ export function interpretRead(parsed) {
   const empty = { first: "", last: "", number: "", dob: "", expiry: "", source: "", verified: false, reason: "" };
   if (!parsed) return { ...empty, reason: "the passport could not be read" };
 
-  const printedFirst = cleanNamePart(parsed.printed_given_names);
-  const printedLast = cleanNamePart(parsed.printed_surname);
-  const printedNumber = cleanDocNumber(parsed.printed_number);
-
   const mrz = parseMrz(parsed.mrz_line1, parsed.mrz_line2);
 
   // Diagnostics for a failed read. Without these there is no way to tell a
   // transcription that was one character out from one that was garbage —
-  // which is the difference between "retry" and "that scan is unusable".
+  // which is the difference between "retry" and "that photo is unusable".
   //
   // Deliberately MASKED: an MRZ contains the passport number and date of
   // birth, and function logs are not the place for either. What's logged is
@@ -511,40 +501,22 @@ export function interpretRead(parsed) {
       return {
         length: t.length,
         validChars: /^[A-Z0-9<]*$/.test(t),
-        // Enough to see whether the right region was read, with the
-        // identifying middle removed.
         starts: t.slice(0, 5),
         ends: t.slice(-4),
       };
     };
     console.warn("[read-passport] MRZ did not verify:", JSON.stringify({
       failures: mrz.failures,
+      found: parsed.found !== false,
       line1: shape(parsed.mrz_line1),
       line2: shape(parsed.mrz_line2),
-      printedNameSeen: !!(printedFirst || printedLast),
     }));
   }
 
   if (mrz.ok) {
-    // eslint-disable-next-line no-unused-vars
-    // The MRZ verified. Names still come from the printed page when they
-    // agree with it — the printed page keeps accents and capitalisation that
-    // the MRZ strips — but the MRZ is what decides they're right.
-    const surnameAgrees = printedNameAgrees(printedLast, mrz.fields.surname);
-    const givenAgree = printedNameAgrees(printedFirst, mrz.fields.givenNames);
-
-    if (!surnameAgrees || !givenAgree) {
-      // This is the JUTZ/JUNE case: the printed read and the verified MRZ
-      // disagree on letters, so one of them is a misread. We will not pick.
-      return {
-        ...empty,
-        reason: "the printed name and the machine-readable zone disagree, so one was misread — check this passport by hand",
-      };
-    }
-
     return {
-      first: printedFirst || mrz.fields.givenNames,
-      last: printedLast || mrz.fields.surname,
+      first: mrz.fields.givenNames,
+      last: mrz.fields.surname,
       number: mrz.fields.documentNumber,
       dob: mrz.fields.dateOfBirth || "",
       expiry: mrz.fields.expiryDate || "",
@@ -554,68 +526,32 @@ export function interpretRead(parsed) {
     };
   }
 
-  // Line 1 readable, line 2 not — overwhelmingly a photo cropped above the
-  // bottom line. The names are in line 1, so when the printed page agrees
-  // with them we have TWO independent readings of the name and can treat it
-  // as corroborated, even though the check digits (which all live in line 2)
-  // never ran. The number and dates are a different matter: they exist only
-  // in line 2, so there is nothing to offer and nothing to verify.
-  if (mrz.nameOnly && mrz.fields && (mrz.fields.surname || mrz.fields.givenNames)) {
-    const agrees = printedNameAgrees(printedLast, mrz.fields.surname)
-      && printedNameAgrees(printedFirst, mrz.fields.givenNames);
-
-    if (agrees) {
-      return {
-        first: printedFirst || mrz.fields.givenNames,
-        last: printedLast || mrz.fields.surname,
-        number: "", dob: "", expiry: "",
-        source: "mrz-line1",
-        verified: false,
-        nameVerified: true,
-        reason: "Only the top line of the machine-readable zone is in this photo, so the passport number and dates could not be read or checked. The name matched on both the printed page and that line. Upload a photo showing BOTH bottom lines to check the number and dates.",
-      };
-    }
-
-    return {
-      ...empty,
-      reason: "Only the top line of the machine-readable zone is in this photo, and the name on it does not match the printed name — one of them was misread. Check this passport by hand, and upload a photo showing the whole data page.",
-    };
-  }
-
-  // No usable MRZ. We will still show a NAME from the printed page, because
-  // a name can be judged by eye against the photo page. We deliberately do
-  // NOT return dates or a number from the printed page: those are the values
-  // that were being misread (an expiry date read as the issue date, a date of
-  // birth assembled from two different fields), they cannot be verified
-  // without the MRZ, and a wrong one is invisible once applied.
-  if (parsed.readable === false && !printedFirst && !printedLast) {
-    return { ...empty, reason: parsed.reason || "the passport could not be read" };
-  }
-
-  if (!printedFirst && !printedLast) {
-    return { ...empty, reason: mrzFailureReason(mrz) };
-  }
-
-  return {
-    first: printedFirst,
-    last: printedLast,
-    number: "",
-    dob: "",
-    expiry: "",
-    source: "printed",
-    verified: false,
-    reason: `${mrzFailureReason(mrz)} The name shown is from the printed page and has NOT been verified — check it against the document before using it. The number and dates could not be verified at all, so they are left blank.`,
-  };
+  // Nothing verified, so nothing is offered. Everything on this panel is
+  // copied onto a booking, and the machine-readable zone is the only part of
+  // a passport that can be checked rather than believed — so without it
+  // there is no value here worth showing, only an instruction.
+  return { ...empty, reason: mrzFailureReason(mrz, parsed) };
 }
 
-function mrzFailureReason(mrz) {
-  if (!mrz || !mrz.failures || mrz.failures.length === 0) {
-    return "The machine-readable zone could not be read.";
+// What to tell the leader, in terms of what they can do about it.
+function mrzFailureReason(mrz, parsed) {
+  const ask = "Upload a straight-on photo of the data page with BOTH lines of the machine-readable zone fully in frame.";
+
+  if (parsed && parsed.found === false) {
+    return `The two lines at the bottom of the passport weren't visible in this photo${parsed.reason ? ` (${parsed.reason})` : ""}. ${ask}`;
   }
+  if (!mrz || !mrz.failures || mrz.failures.length === 0) {
+    return `The machine-readable zone could not be read. ${ask}`;
+  }
+
   const first = mrz.failures[0];
-  return first.includes("check digit")
-    ? "The machine-readable zone did not verify (its check digits failed), which means it was not transcribed cleanly."
-    : `The machine-readable zone could not be used: ${first}.`;
+  if (first.includes("check digit")) {
+    return "The machine-readable zone was read but did not verify — its check digits failed, which means at least one character was misread. " + ask;
+  }
+  if (first.includes("second MRZ line")) {
+    return `Only the top line of the machine-readable zone was in this photo, so the passport number and dates could not be read. ${ask}`;
+  }
+  return `The machine-readable zone could not be used: ${first}. ${ask}`;
 }
 
 // The model is asked for bare JSON, but tolerate it being wrapped in prose or

@@ -307,9 +307,7 @@ function stubFetch(opts = {}) {
           dob: opts.docDob === undefined ? "2008-03-15" : opts.docDob,
           expiry: opts.docExpiry === undefined ? "2030-06-01" : opts.docExpiry,
         }),
-        printed_surname: "SMITH", printed_given_names: "JONATHAN MICHAEL",
-        printed_number: opts.docNumber === undefined ? "LA123456" : opts.docNumber,
-        readable: true, reason: "",
+        found: true, reason: "",
       };
       return jsonRes({ content: [{ type: "text", text: JSON.stringify(payload) }] });
     }
@@ -344,7 +342,11 @@ test("reading a passport returns the name and caches it, without writing the rec
 });
 
 test("the passport number is never copied into the CRM", async () => {
-  stubFetch({ visionReply: { readable: true, surname: "SMITH", given_names: "JONATHAN", source: "mrz", reason: "" } });
+  stubFetch({ visionReply: {
+    mrz_line1: MRZ_L1,
+    mrz_line2: mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" }),
+    found: true, reason: "",
+  } });
   await callRead("leader@trip.example", { email: "mia@example.com" });
   const written = JSON.stringify(sent.patch).toLowerCase();
   assert.ok(!written.includes("passport_number"));
@@ -388,14 +390,6 @@ test("no passport photo is reported, not treated as a mismatch", async () => {
   assert.equal(body.status, "no_photo");
   assert.equal(body.nameMatches, null);
   assert.equal(sent.visionCalls, 0);
-});
-
-test("an uncertain read is unreadable, never a guessed name", async () => {
-  stubFetch({ visionReply: { readable: false, surname: "", given_names: "", source: "", reason: "photo too blurred" } });
-  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
-  assert.equal(body.status, "unreadable");
-  assert.equal(body.passportFirst, "");
-  assert.match(body.message, /blurred/);
 });
 
 test("a vision API failure degrades to a manual check", async () => {
@@ -700,87 +694,26 @@ test("given names come back whole — the read never splits first from middle", 
   assert.equal(body.passportLast, "SMITH");
 });
 
-test("the printed name is kept verbatim when the MRZ agrees with it", () => {
-  // The MRZ strips accents and punctuation; the printed page doesn't. When
-  // they agree, the printed form is what gets stored — a booking should
-  // carry the name as the document prints it.
-  stubFetch({ visionReply: {
-    mrz_line1: "P<NZLST<JOHN<MULLER<<MARIA<JOSE<<<<<<<<<<<<<",
-    mrz_line2: mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" }),
-    printed_surname: "ST. JOHN-MÜLLER", printed_given_names: "MARÍA JOSÉ",
-    printed_number: "LA123456", readable: true, reason: "",
-  } });
-  return callRead("leader@trip.example", { email: "mia@example.com" }).then(({ body }) => {
-    assert.equal(body.passportLast, "ST. JOHN-MÜLLER");
-    assert.equal(body.passportFirst, "MARÍA JOSÉ");
-  });
-});
-
-test("with no printed name, the MRZ name is used and its filler decoded", async () => {
+test("the name comes from the MRZ, with its filler decoded", async () => {
   stubFetch({ visionReply: {
     mrz_line1: "P<NLDVAN<DER<BERG<<JAN<PIETER<<<<<<<<<<<<<<<",
     mrz_line2: mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" }),
-    printed_surname: "", printed_given_names: "", printed_number: "",
-    readable: true, reason: "",
+    found: true, reason: "",
   } });
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
   assert.equal(body.passportLast, "VAN DER BERG");
   assert.equal(body.passportFirst, "JAN PIETER");
 });
 
-test("the passport number comes from the verified MRZ, not the printed read", async () => {
-  // If the printed read and the MRZ disagree on the number, the MRZ wins —
-  // it is the one with a check digit behind it.
+test("the passport number comes from the verified MRZ", async () => {
   stubFetch({ visionReply: {
     mrz_line1: MRZ_L1,
     mrz_line2: mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" }),
-    printed_surname: "SMITH", printed_given_names: "JONATHAN MICHAEL",
-    printed_number: "LA123458",   // misread by one character
-    readable: true, reason: "",
+    found: true, reason: "",
   } });
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
   assert.equal(body.passportNumber, "LA123456");
   assert.equal(body.numberVerdict, NUMBER_VERDICT.MATCH);
-});
-
-test("an unusable MRZ yields no dates and no number at all", async () => {
-  // Dates and numbers read off the printed page are exactly what was being
-  // misread, and nothing can verify them, so they are withheld rather than
-  // offered with a one-click APPLY beside them. The name still comes
-  // through — a leader can judge a name against the photo page by eye.
-  stubFetch({ visionReply: {
-    mrz_line1: "", mrz_line2: "",
-    printed_surname: "SMITH", printed_given_names: "JON",
-    printed_number: "LA123456", readable: true, reason: "",
-  } });
-  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
-  assert.equal(body.passportDob, "");
-  assert.equal(body.passportExpiry, "");
-  assert.equal(body.passportNumber, "");
-  assert.equal(body.passportLast, "SMITH");
-  assert.match(body.message, /could not be verified/i);
-});
-
-test("a cache from before the date checks is re-read, not served as blanks", async () => {
-  // Every record read before the dob/expiry checks shipped has no verdict
-  // stored for them. Treating that as a valid cache would leave those two
-  // checks permanently undone on everyone already in the system, and the
-  // panel would show the dates as empty forever.
-  const { createHash } = await import("node:crypto");
-  stubFetch({ contactProps: {
-    [PASSPORT_PROPS.ocrStatus]: "ok",
-    [PASSPORT_PROPS.ocrFirst]: "JONATHAN",
-    [PASSPORT_PROPS.ocrLast]: "SMITH",
-    [PASSPORT_PROPS.ocrNumber]: "match",
-    // dob + expiry verdicts absent — an older read.
-    [PASSPORT_PROPS.ocrHash]: createHash("sha256")
-      .update("https://www.jotform.com/uploads/passport.jpg").digest("hex").slice(0, 32),
-  } });
-  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
-  assert.notEqual(body.cached, true, "a stale cache must not be served");
-  assert.equal(sent.visionCalls, 1);
-  assert.equal(body.passportDob, "2008-03-15");
-  assert.equal(body.dobVerdict, DATE_VERDICT.MATCH);
 });
 
 test("a failed MRZ is retried once before giving up", async () => {
@@ -795,10 +728,8 @@ test("a failed MRZ is retried once before giving up", async () => {
       call++;
       const good = mrzLine2({ number: "LA123456", dob: "2008-03-15", expiry: "2030-06-01" });
       const payload = call === 1
-        ? { mrz_line1: MRZ_L1, mrz_line2: good.slice(0, 13) + "091227" + good.slice(19),
-            printed_surname: "SMITH", printed_given_names: "JONATHAN MICHAEL", readable: true }
-        : { mrz_line1: MRZ_L1, mrz_line2: good,
-            printed_surname: "SMITH", printed_given_names: "JONATHAN MICHAEL", readable: true };
+        ? { mrz_line1: MRZ_L1, mrz_line2: good.slice(0, 13) + "091227" + good.slice(19), found: true }
+        : { mrz_line1: MRZ_L1, mrz_line2: good, found: true };
       return jsonRes({ content: [{ type: "text", text: JSON.stringify(payload) }] });
     }
     return realFetch(url, init);
@@ -809,19 +740,19 @@ test("a failed MRZ is retried once before giving up", async () => {
   assert.equal(body.passportDob, "2008-03-15");
 });
 
-test("an unverified read is flagged as such", async () => {
+test("an unreadable MRZ yields nothing at all, with an instruction", async () => {
+  // Nothing on this panel is worth showing unless it verified. The only
+  // useful output of a failed read is what to do about it.
   stubFetch({ visionReply: {
-    mrz_line1: "", mrz_line2: "",
-    printed_surname: "SHELTON", printed_given_names: "LUISA CHARLOTTE JULZ",
-    printed_number: "RB013901", readable: true, reason: "",
+    mrz_line1: "", mrz_line2: "", found: false, reason: "the bottom of the page is cut off",
   } });
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
   assert.equal(body.verified, false);
-  assert.equal(body.passportLast, "SHELTON");
-  // And the caveat has to be explicit — a row of blanks with no explanation
-  // is what made this confusing on screen.
-  assert.match(body.message, /NOT been verified/i);
-  assert.match(body.message, /left blank/i);
+  assert.equal(body.passportLast, "");
+  assert.equal(body.passportNumber, "");
+  assert.equal(body.status, "unreadable");
+  assert.match(body.message, /cut off/);
+  assert.match(body.message, /BOTH lines/i);
 });
 
 // --- 4. the ops tick --------------------------------------------------------
