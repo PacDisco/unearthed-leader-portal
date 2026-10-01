@@ -18,7 +18,9 @@
 // a trip this person belongs to.
 //
 // Required env var: ANTHROPIC_API_KEY
-// Optional:         PASSPORT_OCR_MODEL   (default claude-sonnet-4-5)
+// Optional:         PASSPORT_OCR_MODEL   (default claude-sonnet-4-5 — see
+//                   PASSPORT_SETUP.md: a harder scan may need a stronger
+//                   model, and this is the one knob that changes that)
 //                   ANTHROPIC_API_BASE   (default https://api.anthropic.com)
 
 import crypto from "crypto";
@@ -492,6 +494,33 @@ export function interpretRead(parsed) {
   const printedNumber = cleanDocNumber(parsed.printed_number);
 
   const mrz = parseMrz(parsed.mrz_line1, parsed.mrz_line2);
+
+  // Diagnostics for a failed read. Without these there is no way to tell a
+  // transcription that was one character out from one that was garbage —
+  // which is the difference between "retry" and "that scan is unusable".
+  //
+  // Deliberately MASKED: an MRZ contains the passport number and date of
+  // birth, and function logs are not the place for either. What's logged is
+  // the shape of the attempt, not its content.
+  if (!mrz.ok) {
+    const shape = (line) => {
+      const t = String(line || "").toUpperCase().replace(/\s+/g, "");
+      return {
+        length: t.length,
+        validChars: /^[A-Z0-9<]*$/.test(t),
+        // Enough to see whether the right region was read, with the
+        // identifying middle removed.
+        starts: t.slice(0, 5),
+        ends: t.slice(-4),
+      };
+    };
+    console.warn("[read-passport] MRZ did not verify:", JSON.stringify({
+      failures: mrz.failures,
+      line1: shape(parsed.mrz_line1),
+      line2: shape(parsed.mrz_line2),
+      printedNameSeen: !!(printedFirst || printedLast),
+    }));
+  }
 
   if (mrz.ok) {
     // eslint-disable-next-line no-unused-vars

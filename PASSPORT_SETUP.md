@@ -258,9 +258,40 @@ A leader who can see the document can still type the correct value through
 EDIT — the point is that the portal won't offer an unverified value as a
 one-click action.
 
-If a particular passport repeatedly fails to verify, the MRZ in that scan is
-not legible enough. A straight, well-lit photo of the data page — not a
-rotated scanner export — is the fix.
+### When a passport won't verify
+
+Four things differ between a person reading a scan and this integration
+reading it, in rough order of impact:
+
+1. **The model.** `PASSPORT_OCR_MODEL` defaults to `claude-sonnet-4-5`. The
+   MRZ is 44 characters of dense monospace, and a harder scan may need a
+   stronger vision model. This is the one setting that changes the outcome
+   without changing the document — set it to the best vision model on your
+   Anthropic account and re-read a known-bad scan to compare.
+2. **Resolution.** A photo pasted into a chat window arrives at full size. A
+   TapScanner PDF of a two-page spread is rendered down before the model sees
+   it, which can leave the MRZ at very few pixels per character. A straight,
+   well-lit photo of the data page alone — not a rotated two-page scanner
+   export — is the single biggest improvement available on the upload side.
+3. **Rotation.** The prompt handles it, but a sideways page is measurably
+   harder to read than an upright one.
+4. **Context.** A person checking a scan can see the name already on the
+   record and match against it. The read deliberately gets no such hint —
+   giving it one would turn a verification into a confirmation of whatever
+   was already there, which is the opposite of the point.
+
+**Diagnosing a specific failure.** A failed read logs a masked summary to the
+Netlify function log: which check digits failed, the length of each
+transcribed line, whether the characters were valid MRZ characters at all,
+and the first and last few characters of each line. The identifying middle —
+number, date of birth — is deliberately not logged.
+
+Read it like this:
+- lines of 44 valid characters, one check digit failing → a single character
+  slipped; a stronger model or a better scan will fix it
+- short, truncated or non-MRZ characters → the model never found the zone;
+  the scan is the problem, not the model
+- `line1.starts` not `P<` → it read the wrong part of the page
 
 ### Reading a rotated or bilingual scan
 
