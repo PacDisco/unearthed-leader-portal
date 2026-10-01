@@ -54,6 +54,45 @@ export default async (request, context) => {
   }
 
   const host = parsed.hostname.toLowerCase();
+
+  // Passport photos from the checking widget: a Google Drive link into the
+  // private Passports Shared Drive. Fetched through the passport-check Worker,
+  // which holds the Drive credentials and only serves files from that folder.
+  // See netlify/functions/_shared/passport-widget.js and PASSPORT_SETUP.md.
+  const driveMatch = /^https:\/\/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]{10,})(?:[/?#]|$)/.exec(target);
+  if (driveMatch) {
+    const base = (Netlify.env.get("PASSPORT_FILES_URL") || "").replace(/\/+$/, "");
+    const key = Netlify.env.get("PASSPORT_FILES_KEY") || "";
+    if (!base || !key) {
+      return jsonResponse({
+        error: "Passport files are not configured",
+        details: "Set PASSPORT_FILES_URL and PASSPORT_FILES_KEY in Netlify environment variables."
+      }, 500);
+    }
+    let upstreamDrive;
+    try {
+      upstreamDrive = await fetch(`${base}/file/${encodeURIComponent(driveMatch[1])}`, {
+        headers: { "x-portal-key": key }
+      });
+    } catch (err) {
+      return jsonResponse({ error: "Upstream fetch failed", details: String(err?.message || err) }, 502);
+    }
+    if (!upstreamDrive.ok) {
+      console.warn(`[document-proxy] passport file ${upstreamDrive.status} for Drive file ${driveMatch[1]}`);
+      return jsonResponse({ error: `Passport file returned ${upstreamDrive.status}` }, upstreamDrive.status);
+    }
+    const type = (upstreamDrive.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+    const ext = type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
+    return new Response(upstreamDrive.body, {
+      status: 200,
+      headers: {
+        "Content-Type": type,
+        "Content-Disposition": contentDisposition(`passport.${ext}`),
+        "Cache-Control": "private, max-age=300"
+      }
+    });
+  }
+
   const isJotform = (
     host === "jotform.com" || host.endsWith(".jotform.com") ||
     host === "jotfor.ms"   || host.endsWith(".jotfor.ms")

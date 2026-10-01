@@ -24,6 +24,7 @@
 // Optional env: JOTFORM_APPLICATION_FORM_ID (comma-separated), JOTFORM_BASE_URL
 // -----------------------------------------------------------------------------
 
+import { normalizePassportWidget } from "./_shared/passport-widget.js";
 import { authenticate } from "./_shared/auth.js";
 import { assertPortalAccess } from "./_shared/portal-access.js";
 import { assembleGroupInfo } from "./lib/group-info.js";
@@ -335,7 +336,7 @@ async function fetchAllSubmissions(formId, apiKey, baseUrl) {
     if (!res.ok) break;
     const data = await res.json();
     const page = Array.isArray(data?.content) ? data.content : [];
-    list.push(...page);
+    list.push(...page.map(normalizePassportWidget));
     if (page.length < pageSize) break;
     offset += pageSize;
     if (offset >= 5000) break;

@@ -20,6 +20,8 @@
 //                                 otherwise a more-recent doc-upload submission
 //                                 would win over the application submission.
 
+import { normalizePassportWidget } from "../_shared/passport-widget.js";
+
 const DEFAULT_FORM_IDS = (process.env.JOTFORM_APPLICATION_FORM_ID
   || "251396787451873")
   .split(",").map(s => s.trim()).filter(Boolean);
@@ -159,7 +161,7 @@ export async function getSubmission(submissionId) {
     throw new Error(`Jotform GET submission ${res.status}: ${text.slice(0, 300)}`);
   }
   const data = await res.json();
-  return data?.content || null;
+  return data?.content ? normalizePassportWidget(data.content) : null;
 }
 
 // updateSubmission(submissionId, fields) where `fields` is a map of Jotform
@@ -461,7 +463,7 @@ async function fetchAllSubmissions(formId) {
     }
     const data = await res.json();
     const page = Array.isArray(data?.content) ? data.content : [];
-    list.push(...page);
+    list.push(...page.map(normalizePassportWidget));
     if (page.length < pageSize) break;
     offset += pageSize;
     if (offset >= 5000) break;

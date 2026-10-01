@@ -29,6 +29,7 @@ import { resolveRosterEditAccess } from "./_shared/portal-access.js";
 import { APPLICATION_FORM_IDS_CSV } from "./_shared/application-forms.js";
 import { findSubmissionByEmail } from "./lib/jotform.js";
 import { parseMrz } from "./_shared/mrz.js";
+import { isPassportDriveUrl, fetchPassportDriveFile } from "./_shared/passport-widget.js";
 import {
   PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT, DATE_VERDICT,
   buildOcrPatch, shapePassportState, compareDocumentNumbers, compareDates,
@@ -268,18 +269,27 @@ async function savePassportState(contactId, properties) {
 }
 
 // The passport image on the application submission: a file upload whose label
-// mentions passport. "Passport Cover Page Photo" on the current form.
+// mentions passport. Two shapes exist (see _shared/passport-widget.js):
+//   - "Passport photo page" — the checking widget, a Shared Drive link,
+//     normalised to a one-file upload when the submission was fetched
+//   - "Passport Cover Page Photo" — the old Jotform upload, still holding the
+//     file for every submission made before the widget went in
+// When both are answered (an old submission later edited), the widget's file
+// wins: it's the newer upload and the one that passed the bio-page check.
 function passportPhotoUrl(submission) {
   const answers = submission?.answers || {};
+  let fallback = null;
   for (const key of Object.keys(answers)) {
     const a = answers[key] || {};
     if (String(a.type || "").toLowerCase() !== "control_fileupload") continue;
     if (!/passport/i.test(String(a.text || a.name || ""))) continue;
     const v = a.answer;
-    if (Array.isArray(v) && v.length) return String(v[0]);
-    if (typeof v === "string" && v) return v;
+    const url = Array.isArray(v) && v.length ? String(v[0]) : (typeof v === "string" && v ? v : null);
+    if (!url) continue;
+    if (isPassportDriveUrl(url)) return url;
+    if (!fallback) fallback = url;
   }
-  return null;
+  return fallback;
 }
 
 // Question labels for the two dates, kept in step with FIELD_MAP.travel in
@@ -334,8 +344,29 @@ function formPassportNumber(submission) {
   return "";
 }
 
-// Jotform-hosted files need the API key appended server-side.
+// Jotform-hosted files need the API key appended server-side. Passport photos
+// from the checking widget live in a private Shared Drive and are fetched
+// through the passport-check Worker instead.
 async function fetchDocument(url) {
+  if (isPassportDriveUrl(url)) {
+    let res;
+    try { res = await fetchPassportDriveFile(url); }
+    catch (err) { throw new FetchProblem("download", `passport Drive fetch: ${err?.message || err}`); }
+    if (!res.ok) throw new FetchProblem("download", `passport Drive fetch ${res.status}`);
+    const contentType = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length === 0) throw new FetchProblem("download", "empty file");
+    if (!SUPPORTED_IMAGE_MEDIA.includes(contentType)) {
+      throw new FetchProblem("unsupported", `unsupported passport file type: ${contentType || "unknown"}`,
+        describeType(contentType, url));
+    }
+    if (buf.length > MAX_IMAGE_BYTES) {
+      throw new FetchProblem("unsupported", `file too large (${buf.length} bytes)`,
+        `The uploaded file is ${(buf.length / 1024 / 1024).toFixed(1)}MB, over the ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB limit for reading.`);
+    }
+    return { base64: buf.toString("base64"), mediaType: contentType, isPdf: false };
+  }
+
   let target = url;
   try {
     const parsed = new URL(url);

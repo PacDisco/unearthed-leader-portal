@@ -290,4 +290,21 @@ test("the upload date is carried through", () => {
   assert.equal(doc.uploadedAt, "2026-02-14 09:30:00");
 });
 
+// --- passport widget ---------------------------------------------------------
+
+const { normalizePassportWidget } = await import("../netlify/functions/_shared/passport-widget.js");
+
+test("a passport saved by the checking widget is listed as a document", () => {
+  const link = "https://drive.google.com/file/d/1Z5RsozRP6-xdyT494--JlFfDT7JOO1VG/view?usp=drivesdk";
+  const sub = normalizePassportWidget({ id: "sub", created_at: "2026-10-02 10:00:00", answers: {
+    "1": { type: "control_email", text: "Email", order: "1", answer: "mia@example.com" },
+    "2": { type: "control_widget", name: "passportPhoto", text: "Passport photo page", order: "2", answer: link },
+  } });
+  const docs = documentsFromSubmission(sub, staffView());
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].fieldLabel, "Passport photo page");
+  assert.equal(docs[0].filename, "passport.jpg");
+  assert.equal(docs[0].url, `/document-proxy?url=${encodeURIComponent(link)}`);
+});
+
 if (!process.exitCode) console.log(`uploaded-documents.test.mjs — ${passed} passed`);

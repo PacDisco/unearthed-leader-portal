@@ -340,3 +340,36 @@ should look at this", which is what the ops tick is for.
 
 Applying a name is logged in that person's HubSpot audit note like any other
 leader edit — who applied it, when, and what changed.
+
+## Passport photo widget (October 2026)
+
+The application form (251396787451873) now collects the passport through the
+**"Passport bio page upload"** custom widget — field `passportPhoto`, qid 133,
+labelled "Passport photo page". It checks the photo is a passport bio page
+before the form can be submitted, saves it to the *Jotform uploads* folder in
+the Passports Shared Drive, and stores the Drive link as the answer. The old
+**"Passport Cover Page Photo"** upload (qid 89) is hidden but still holds the
+files for every earlier submission.
+
+How the portal handles it (`netlify/functions/_shared/passport-widget.js`):
+
+- Every submission fetch normalises a widget answer holding a Drive link into a
+  one-file `control_fileupload`, so the passport check, the documents list, the
+  leader view and the group export all read it without special cases.
+- The passport check prefers the widget's photo when both fields are answered,
+  and falls back to the old upload for older submissions.
+- Drive files are private, so they're downloaded through the passport-check
+  Worker's `/file/<id>` endpoint — by `read-passport` for the check, and by the
+  `/document-proxy` edge function for VIEW links. The Worker only serves files
+  in the uploads folder, and only with the shared key.
+
+Setup — the same random value in both places:
+
+| Where | Name | Value |
+|---|---|---|
+| Cloudflare Worker (`npx wrangler secret put PORTAL_FILE_KEY`) | `PORTAL_FILE_KEY` | a long random string |
+| Netlify env | `PASSPORT_FILES_KEY` | the same string |
+| Netlify env | `PASSPORT_FILES_URL` | `https://passport-check.unearthededucation.workers.dev` |
+
+Without these, widget passports show as "needs a manual check" and their VIEW
+links return a configuration error; Jotform-hosted passports are unaffected.

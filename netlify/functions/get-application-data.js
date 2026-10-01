@@ -17,6 +17,7 @@
 //                   application-form versions are spun up so old students
 //                   don't drop out of the lookup.
 
+import { normalizePassportWidget } from "./_shared/passport-widget.js";
 import { authenticate } from "./_shared/auth.js";
 import { assertEmailAccess } from "./_shared/portal-access.js";
 // Shared with get-person-form.js / update-person.js so the submission a leader
@@ -220,7 +221,7 @@ async function fetchAllSubmissions(formId, apiKey, baseUrl) {
 
     const data = await res.json();
     const page = Array.isArray(data?.content) ? data.content : [];
-    list.push(...page);
+    list.push(...page.map(normalizePassportWidget));
     if (page.length < pageSize) break;
     offset += pageSize;
     if (offset >= 5000) break;

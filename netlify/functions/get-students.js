@@ -10,6 +10,7 @@
 // value out of each deal payment_N string ("250, pi_xxx, 2026-03-12"), and
 // sums them.
 
+import { normalizePassportWidget } from "./_shared/passport-widget.js";
 import { authenticate } from "./_shared/auth.js";
 import { assertPortalAccess } from "./_shared/portal-access.js";
 import { collectFileIds, resolveFileIds, resolvePhotoUrl } from "./_shared/hubspot-files.js";
@@ -424,7 +425,7 @@ async function loadPortraitsByEmail() {
         if (!res.ok) return [];
         const data = await res.json();
         const page = Array.isArray(data?.content) ? data.content : [];
-        list.push(...page);
+        list.push(...page.map(normalizePassportWidget));
         if (page.length < 1000) break;
         offset += 1000;
         if (offset >= 5000) break; // safety net

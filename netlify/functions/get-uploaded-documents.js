@@ -50,6 +50,7 @@
 //         "Upload", "File", "Attachment", "Photo Upload", etc.
 //   Specific labels like "Passport" or "Medical Form" never get overridden,
 //   so the application form is unaffected.
+import { normalizePassportWidget, isPassportDriveUrl } from "./_shared/passport-widget.js";
 import { proxyUrl } from "./_shared/doc-token.js";
 import { authenticate } from "./_shared/auth.js";
 import { assertEmailAccess } from "./_shared/portal-access.js";
@@ -294,6 +295,8 @@ export function documentsFromSubmission(submission, audience, opts = {}) {
       const u = new URL(f.url);
       filename = decodeURIComponent(u.pathname.split("/").pop() || "Document");
     } catch (_) { /* leave default */ }
+    // Drive links end in ".../view", which is no use as a filename.
+    if (isPassportDriveUrl(f.url)) filename = "passport.jpg";
 
     out.push({
       submissionId: submission.id,
@@ -352,7 +355,7 @@ async function fetchAllSubmissions(formId, apiKey, baseUrl) {
 
     const data = await res.json();
     const page = Array.isArray(data?.content) ? data.content : [];
-    list.push(...page);
+    list.push(...page.map(normalizePassportWidget));
     if (page.length < pageSize) break;
     offset += pageSize;
     if (offset >= 5000) break; // safety net

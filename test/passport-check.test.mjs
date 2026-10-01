@@ -14,6 +14,8 @@ process.env.HUBSPOT_API_KEY = "hs-test-key";
 process.env.JOTFORM_API_KEY = "jf-test-key";
 process.env.ANTHROPIC_API_KEY = "sk-test";
 process.env.JOTFORM_APPLICATION_FORM_ID = "111111";
+process.env.PASSPORT_FILES_URL = "https://passport-files.test";
+process.env.PASSPORT_FILES_KEY = "portal-file-key";
 
 const { createToken } = await import("../netlify/functions/_shared/auth.js");
 const {
@@ -279,10 +281,26 @@ function stubFetch(opts = {}) {
             "9": { type: "control_fileupload", text: "Passport Cover Page Photo", order: "9",
                    answer: [opts.fileUrl || "https://www.jotform.com/uploads/passport.jpg"] }
           }),
+          ...(opts.widgetAnswer === undefined ? {} : {
+            "133": { type: "control_widget", name: "passportPhoto", text: "Passport photo page", order: "10",
+                     answer: opts.widgetAnswer }
+          }),
         },
       }] });
     }
     if (u.includes("api.jotform.com/form/")) return jsonRes({ content: [] });
+
+    if (u.startsWith("https://passport-files.test/file/")) {
+      sent.driveFetches = (sent.driveFetches || 0) + 1;
+      sent.driveFileId = u.split("/file/")[1];
+      sent.driveKey = (init.headers || {})["x-portal-key"];
+      if (opts.driveFails) return jsonRes({}, false, 404);
+      return {
+        ok: true, status: 200,
+        headers: { get: () => "image/jpeg" },
+        arrayBuffer: async () => new Uint8Array(9).buffer,
+      };
+    }
 
     if (u.includes("jotform.com/uploads/")) {
       sent.imageFetches++;
@@ -787,6 +805,60 @@ test("un-ticking clears who signed it off", async () => {
   assert.equal(sent.patch[PASSPORT_PROPS.verified], "false");
   assert.equal(sent.patch[PASSPORT_PROPS.verifiedBy], "");
   assert.equal(sent.patch[PASSPORT_PROPS.verifiedAt], "");
+});
+
+
+// --- passport widget (Shared Drive link) -----------------------------------
+const { normalizePassportWidget, driveFileId } = await import("../netlify/functions/_shared/passport-widget.js");
+const DRIVE_LINK = "https://drive.google.com/file/d/1Z5RsozRP6-xdyT494--JlFfDT7JOO1VG/view?usp=drivesdk";
+
+test("a passport widget answer is normalised to a one-file upload", () => {
+  const sub = { answers: {
+    "133": { type: "control_widget", name: "passportPhoto", text: "Passport photo page", answer: DRIVE_LINK },
+    "140": { type: "control_widget", name: "somethingElse", text: "Get Page URL", answer: "https://x.example" },
+  } };
+  normalizePassportWidget(sub);
+  assert.equal(sub.answers["133"].type, "control_fileupload");
+  assert.deepEqual(sub.answers["133"].answer, [DRIVE_LINK]);
+  assert.equal(sub.answers["140"].type, "control_widget");
+  assert.equal(driveFileId(DRIVE_LINK), "1Z5RsozRP6-xdyT494--JlFfDT7JOO1VG");
+  // idempotent
+  normalizePassportWidget(sub);
+  assert.deepEqual(sub.answers["133"].answer, [DRIVE_LINK]);
+});
+
+test("an empty passport widget answer counts as no photo", () => {
+  const sub = { answers: { "133": { type: "control_widget", name: "passportPhoto", text: "Passport photo page", answer: "" } } };
+  normalizePassportWidget(sub);
+  assert.equal(sub.answers["133"].answer, "");
+});
+
+test("the widget's Drive photo is read through the Worker with the portal key", async () => {
+  stubFetch({ noPhoto: true, widgetAnswer: DRIVE_LINK });
+  const { statusCode, body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
+  assert.equal(statusCode, 200);
+  assert.equal(body.status, "ok");
+  assert.equal(sent.driveFetches, 1);
+  assert.equal(sent.driveFileId, "1Z5RsozRP6-xdyT494--JlFfDT7JOO1VG");
+  assert.equal(sent.driveKey, "portal-file-key");
+  assert.equal(sent.imageFetches, 0);
+});
+
+test("when both uploads are answered, the widget's photo wins over the old field", async () => {
+  stubFetch({ widgetAnswer: DRIVE_LINK });
+  const { statusCode } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
+  assert.equal(statusCode, 200);
+  assert.equal(sent.driveFetches, 1);
+  assert.equal(sent.imageFetches, 0);
+});
+
+test("old submissions without the widget still read the Jotform upload", async () => {
+  stubFetch({ widgetAnswer: "" });
+  const { statusCode, body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
+  assert.equal(statusCode, 200);
+  assert.equal(body.status, "ok");
+  assert.equal(sent.imageFetches, 1);
+  assert.equal(sent.driveFetches || 0, 0);
 });
 
 await run();
