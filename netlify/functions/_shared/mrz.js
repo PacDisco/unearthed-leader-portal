@@ -98,18 +98,37 @@ export function parseMrz(line1, line2, now = new Date()) {
   const l2 = tidyLine(line2);
   const failures = [];
 
-  if (!l1 || !l2) return { ok: false, failures: ["the two MRZ lines were not both provided"], fields: null };
-  if (!/^[A-Z0-9<]+$/.test(l1) || !/^[A-Z0-9<]+$/.test(l2)) {
-    return { ok: false, failures: ["the MRZ contains characters that cannot appear in one"], fields: null };
+  // Line 1 carries the names; line 2 carries the number, the dates and every
+  // check digit. They fail independently, and the common real-world case is a
+  // photo that crops the bottom line off the page — which leaves the names
+  // perfectly readable. Returning nothing in that case throws away the half
+  // of the document that WAS captured.
+  const line1Usable = !!l1 && /^[A-Z0-9<]+$/.test(l1);
+  const line2Usable = !!l2 && /^[A-Z0-9<]+$/.test(l2);
+
+  if (!line1Usable && !line2Usable) {
+    return { ok: false, nameOnly: false, failures: ["no MRZ was provided"], fields: null };
+  }
+
+  if (line1Usable && !line2Usable) {
+    const names = namesFromLine1(l1);
+    return {
+      ok: false,
+      // The names are readable; nothing else is. The caller decides what to
+      // do with that — see interpretRead in read-passport.js.
+      nameOnly: true,
+      failures: [l2 ? "the second MRZ line is not a valid MRZ line" : "the second MRZ line is missing (the photo may be cropped)"],
+      fields: { ...names, documentNumber: "", nationality: "", sex: "", dateOfBirth: null, expiryDate: null },
+    };
+  }
+
+  if (!line1Usable) {
+    return { ok: false, nameOnly: false, failures: ["the first MRZ line is missing or invalid"], fields: null };
   }
   if (l1[0] !== "P") failures.push("the first line does not start with P (not a passport MRZ)");
 
   // --- line 1: document type, issuing state, names -------------------------
-  const nameField = l1.slice(5);
-  const split = nameField.indexOf("<<");
-  const surname = decodeNamePart(split >= 0 ? nameField.slice(0, split) : nameField);
-  const givenNames = decodeNamePart(split >= 0 ? nameField.slice(split + 2) : "");
-  const issuingState = l1.slice(2, 5).replace(/</g, "");
+  const { surname, givenNames, issuingState } = namesFromLine1(l1);
 
   // --- line 2: number, nationality, dates, sex -----------------------------
   const documentNumberRaw = l2.slice(0, 9);
@@ -144,6 +163,7 @@ export function parseMrz(line1, line2, now = new Date()) {
 
   return {
     ok: failures.length === 0,
+    nameOnly: false,
     failures,
     fields: {
       surname,
@@ -155,6 +175,19 @@ export function parseMrz(line1, line2, now = new Date()) {
       dateOfBirth,
       expiryDate,
     },
+  };
+}
+
+// Names live in line 1 only. Positions 0-1 are the document type (NZ uses
+// both "P<" and "PP" across issues), 2-4 the issuing state, 5+ the names,
+// with "<<" between surname and given names.
+function namesFromLine1(l1) {
+  const nameField = l1.slice(5);
+  const split = nameField.indexOf("<<");
+  return {
+    surname: decodeNamePart(split >= 0 ? nameField.slice(0, split) : nameField),
+    givenNames: decodeNamePart(split >= 0 ? nameField.slice(split + 2) : ""),
+    issuingState: l1.slice(2, 5).replace(/</g, ""),
   };
 }
 

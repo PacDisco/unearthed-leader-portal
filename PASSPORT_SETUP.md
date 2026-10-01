@@ -263,6 +263,15 @@ digits make that class of error visible.
 What the check digits do NOT cover: the nationality (unused) and the name
 line, which has none — hence the printed cross-check.
 
+**A cropped photo is handled specially.** The MRZ is two lines: the top one
+carries the names, the bottom one carries the passport number, both dates and
+*every* check digit. Photos commonly cut off the bottom line. When that
+happens the names are still perfectly readable, so if the printed page and
+MRZ line 1 agree — two independent readings — the name is treated as
+corroborated and can be applied. The number and dates exist only on the
+missing line, so there is nothing to offer and nothing to verify, and the
+panel says so and asks for a photo showing both lines.
+
 **A failed MRZ is retried once.** Transcription slips are stochastic, so a
 second attempt (told which characters are commonly confused) often lands a
 clean one. The check digits still gate acceptance, so the retry raises the
@@ -311,7 +320,9 @@ Read it like this:
   slipped; a stronger model or a better scan will fix it
 - short, truncated or non-MRZ characters → the model never found the zone;
   the scan is the problem, not the model
-- `line1.starts` not `P<` → it read the wrong part of the page
+- `line2.length` 0 → the photo is cropped above the bottom MRZ line
+- `line1.starts` not `P<` or `PP` → it read the wrong part of the page
+  (New Zealand issues both type prefixes)
 
 ### Reading a rotated or bilingual scan
 

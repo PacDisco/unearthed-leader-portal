@@ -210,6 +210,9 @@ export async function handler(event) {
       // Did the machine-readable zone verify? Drives whether the panel
       // offers a one-click apply, or only shows the value for checking.
       verified: !!read.verified,
+      // The name alone can be corroborated without the check digits, when
+      // the printed page and MRZ line 1 agree.
+      nameVerified: !!read.verified || !!read.nameVerified,
       // The reason is surfaced even on a successful read: "the name is from
       // the printed page, the dates couldn't be verified" is exactly what a
       // leader needs to know before trusting a row.
@@ -548,6 +551,34 @@ export function interpretRead(parsed) {
       source: "mrz",
       verified: true,
       reason: "",
+    };
+  }
+
+  // Line 1 readable, line 2 not — overwhelmingly a photo cropped above the
+  // bottom line. The names are in line 1, so when the printed page agrees
+  // with them we have TWO independent readings of the name and can treat it
+  // as corroborated, even though the check digits (which all live in line 2)
+  // never ran. The number and dates are a different matter: they exist only
+  // in line 2, so there is nothing to offer and nothing to verify.
+  if (mrz.nameOnly && mrz.fields && (mrz.fields.surname || mrz.fields.givenNames)) {
+    const agrees = printedNameAgrees(printedLast, mrz.fields.surname)
+      && printedNameAgrees(printedFirst, mrz.fields.givenNames);
+
+    if (agrees) {
+      return {
+        first: printedFirst || mrz.fields.givenNames,
+        last: printedLast || mrz.fields.surname,
+        number: "", dob: "", expiry: "",
+        source: "mrz-line1",
+        verified: false,
+        nameVerified: true,
+        reason: "Only the top line of the machine-readable zone is in this photo, so the passport number and dates could not be read or checked. The name matched on both the printed page and that line. Upload a photo showing BOTH bottom lines to check the number and dates.",
+      };
+    }
+
+    return {
+      ...empty,
+      reason: "Only the top line of the machine-readable zone is in this photo, and the name on it does not match the printed name — one of them was misread. Check this passport by hand, and upload a photo showing the whole data page.",
     };
   }
 
