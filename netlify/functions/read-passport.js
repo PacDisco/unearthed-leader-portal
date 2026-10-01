@@ -29,6 +29,7 @@ import { resolveRosterEditAccess } from "./_shared/portal-access.js";
 import { APPLICATION_FORM_IDS_CSV } from "./_shared/application-forms.js";
 import { findSubmissionByEmail } from "./lib/jotform.js";
 import { parseMrzWithRepair } from "./_shared/mrz.js";
+import { rotateImage } from "./_shared/image-rotate.js";
 import { isPassportDriveUrl, fetchPassportDriveFile } from "./_shared/passport-widget.js";
 import {
   PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT, DATE_VERDICT,
@@ -160,9 +161,21 @@ export async function handler(event) {
       // document — and the failure is stochastic, so one more attempt often
       // lands a clean transcription. The check digits still decide whether
       // we accept it, so this raises the hit rate without lowering the bar.
+      //
+      // A sideways or upside-down scan is the commonest cause of slipped
+      // characters, so when the first read says the page is turned, the
+      // retry is made on an upright copy of the image instead.
       if (!read.verified) {
-        const second = await readPassportFile(file, { retry: true });
-        if (second.verified) read = second;
+        const upright = (!file.isPdf && read.rotation) ? rotateImage(file, read.rotation) : null;
+        const second = await readPassportFile(upright ? { ...upright, isPdf: false } : file, { retry: true });
+        if (second.verified) {
+          read = second;
+          if (upright) console.info(`[read-passport] verified after rotating ${read.rotation || "?"}°`);
+        } else if (upright) {
+          // One last try on the original, in case the rotation was wrong.
+          const third = await readPassportFile(file, { retry: true });
+          if (third.verified) read = third;
+        }
       }
     } catch (err) {
       console.error("[read-passport] vision call failed:", err?.message || err);
@@ -453,10 +466,14 @@ The machine-readable zone is the block of monospaced characters across the very 
 
 The scan may be ROTATED (sideways or upside down), may be one page of several, and may show two pages at once. Find those two lines whatever the orientation.
 
+Use ONLY the zone on the page with the holder's photo and printed details. Some passports print a small illustrated specimen passport (with its own sample machine-readable zone) in the security artwork on the facing page — ignore that completely.
+
+Also report "rotation": how many degrees the image must be turned CLOCKWISE so the machine-readable zone reads left to right along the bottom — 0, 90, 180 or 270.
+
 Copy each line EXACTLY, character by character, including every "<". Do not insert spaces. Do not tidy. Do not drop trailing fillers. Do not correct anything that looks wrong to you.
 
 Reply with ONLY a JSON object, no other text:
-{"mrz_line1": "", "mrz_line2": "", "found": true|false, "reason": ""}
+{"mrz_line1": "", "mrz_line2": "", "found": true|false, "rotation": 0, "reason": ""}
 
 Rules:
 - These lines carry check digits, so an exact copy can be verified and an inexact one will be rejected. A careful character-by-character transcription is worth far more than a plausible one.
@@ -514,6 +531,13 @@ async function readPassportFile({ base64, mediaType, isPdf }, { retry = false } 
 //     disagreement means one of them was misread, so we return nothing
 // Exported for tests.
 export function interpretRead(parsed) {
+  const result = interpretTranscription(parsed);
+  const rot = Number(parsed && parsed.rotation);
+  result.rotation = [90, 180, 270].includes(rot) ? rot : 0;
+  return result;
+}
+
+function interpretTranscription(parsed) {
   const empty = { first: "", last: "", number: "", dob: "", expiry: "", source: "", verified: false, reason: "" };
   if (!parsed) return { ...empty, reason: "the passport could not be read" };
 

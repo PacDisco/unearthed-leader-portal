@@ -307,18 +307,21 @@ function stubFetch(opts = {}) {
       if (opts.fileDownloadFails) return jsonRes({}, false, 502);
       const type = opts.fileType || "image/jpeg";
       const size = opts.fileBytes || 7;
+      const bytes = opts.fileData || new Uint8Array(size);
       return {
         ok: true, status: 200,
         headers: { get: () => type },
-        arrayBuffer: async () => new Uint8Array(size).buffer,
+        arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
       };
     }
 
     if (u.includes("api.anthropic.com/v1/messages")) {
       sent.visionCalls++;
       try { sent.visionBlocks = JSON.parse(body).messages[0].content.map(c => c.type); } catch (_) {}
+      try { (sent.visionImages = sent.visionImages || []).push(JSON.parse(body).messages[0].content[0].source.data); } catch (_) {}
       if (opts.visionFails) return jsonRes({ error: "boom" }, false, 500);
-      const payload = opts.visionReply || {
+      const queued = opts.visionReplies && opts.visionReplies[sent.visionCalls - 1];
+      const payload = queued || opts.visionReply || {
         mrz_line1: MRZ_L1,
         mrz_line2: mrzLine2({
           number: opts.docNumber === undefined ? "LA123456" : opts.docNumber,
@@ -859,6 +862,28 @@ test("old submissions without the widget still read the Jotform upload", async (
   assert.equal(body.status, "ok");
   assert.equal(sent.imageFetches, 1);
   assert.equal(sent.driveFetches || 0, 0);
+});
+
+test("a sideways scan is turned upright before the retry", async () => {
+  const jpeg = (await import("jpeg-js")).default;
+  const w = 40, h = 20, px = new Uint8Array(w * h * 4).fill(200);
+  const fileData = new Uint8Array(jpeg.encode({ data: px, width: w, height: h }, 90).data);
+  stubFetch({
+    fileData,
+    visionReplies: [
+      { mrz_line1: MRZ_L1, mrz_line2: "garbled", found: true, rotation: 90, reason: "" },
+      // second call falls through to the default (verifying) reply
+    ],
+  });
+  const { statusCode, body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
+  assert.equal(statusCode, 200);
+  assert.equal(body.verified, true);
+  assert.equal(sent.visionCalls, 2);
+  // the second image is a different (rotated) image, 20x40 instead of 40x20
+  assert.notEqual(sent.visionImages[1], sent.visionImages[0]);
+  const second = jpeg.decode(Buffer.from(sent.visionImages[1], "base64"));
+  assert.equal(second.width, 20);
+  assert.equal(second.height, 40);
 });
 
 await run();
