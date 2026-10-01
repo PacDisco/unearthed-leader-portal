@@ -5011,8 +5011,9 @@
   // verdict and RE-READ reveals the values again.
   function passportRows(state, person) {
     const recorded = (person && person.name) || "";
-    const nameVerdict = state.nameMatches === false ? "mismatch"
+    let nameVerdict = state.nameMatches === false ? "mismatch"
       : state.nameMatches === true ? "match" : "unknown";
+    if (!state.cached && !state.passportName) nameVerdict = "unknown";
 
     // A row can be applied when we hold a value from the passport AND either
     // the record disagrees, or the record is EMPTY. Filling a gap is as
@@ -5026,6 +5027,19 @@
     // surname three different ways. EDIT is still there for typing what you
     // can see on the document.
     const verified = state.verified !== false;
+
+    // A verdict is only meaningful if something was actually compared. On a
+    // FRESH read with no value for a field, there was nothing to compare
+    // against, so any verdict carried over from an earlier read is stale and
+    // must not be shown — least of all as a green tick. This panel claimed
+    // "matches ✓" on all three of number, date of birth and expiry while
+    // simultaneously reporting that nothing had been verified.
+    const trustVerdict = (passportValue, verdict) => {
+      if (state.cached) return verdict;              // cached rows carry verdicts, not values
+      if (passportValue) return verdict;             // we have both sides
+      return "unknown";                              // nothing was compared
+    };
+
     const appliable = (passportValue, recordValue, verdict) =>
       verified && !!passportValue && (verdictNeedsLook(verdict) || !String(recordValue || "").trim());
 
@@ -5043,7 +5057,7 @@
         label: "Passport number",
         onRecord: state.formNumber || "",
         onPassport: state.passportNumber || "",
-        verdict: state.numberVerdict || "unknown",
+        verdict: trustVerdict(state.passportNumber, state.numberVerdict || "unknown"),
         canApply: appliable(state.passportNumber, state.formNumber, state.numberVerdict),
       },
       {
@@ -5051,7 +5065,7 @@
         label: "Date of birth",
         onRecord: formatDateDisplay(state.formDob || ""),
         onPassport: formatDateDisplay(state.passportDob || ""),
-        verdict: state.dobVerdict || "unknown",
+        verdict: trustVerdict(state.passportDob, state.dobVerdict || "unknown"),
         canApply: appliable(state.passportDob, state.formDob, state.dobVerdict),
       },
       {
@@ -5059,7 +5073,7 @@
         label: "Passport expiry",
         onRecord: formatDateDisplay(state.formExpiry || ""),
         onPassport: formatDateDisplay(state.passportExpiry || ""),
-        verdict: state.expiryVerdict || "unknown",
+        verdict: trustVerdict(state.passportExpiry, state.expiryVerdict || "unknown"),
         canApply: appliable(state.passportExpiry, state.formExpiry, state.expiryVerdict),
       },
     ];

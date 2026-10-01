@@ -86,35 +86,73 @@ export function normaliseName(s) {
 
 // Do the name on record and the name on the passport agree?
 //
-// Middle names are compared leniently: a passport carrying a middle name the
-// contact record doesn't have is NOT a mismatch, because the contact record
-// only holds first + last. What matters is that the first and last names
-// agree. A passport first name that merely *contains* the recorded one is
-// still a mismatch ("Jon" vs "Jonathan" is exactly the case that breaks a
-// booking), so this is a strict comparison on those two parts.
+// Compared as a SET OF NAME PARTS, not field by field. Field-by-field
+// comparison failed in both directions on real records:
+//
+//   - "Samuel James Cottle" was flagged as DIFFERING from a passport reading
+//     COTTLE, SAMUEL JAMES — because the contact happened to be stored as
+//     firstname "Samuel", lastname "James Cottle". Where a CRM puts the split
+//     is arbitrary and tells us nothing about the person's name.
+//   - "Luisa Charlotte Jutz" was reported as MATCHING a passport reading
+//     LUISA CHARLOTTE KUNZ — because only the first given name and the
+//     surname were compared, and a wrong third name fell in the gap.
+//
+// So both sides are flattened to their parts and compared as multisets. The
+// arbitrary split stops mattering, and every part has to be accounted for.
+//
+// The one allowance: a record holding FEWER parts than the passport (no
+// middle name recorded) still matches, because the contact record often only
+// has room for two fields. A record holding a part the passport does NOT
+// have is a mismatch — that is the Jutz/Kunz case, and it is exactly what
+// has to be caught before a ticket is issued.
 export function compareNames({ recordedFirst, recordedLast, passportFirst, passportLast }) {
-  const rf = normaliseName(recordedFirst);
-  const rl = normaliseName(recordedLast);
-  const pf = normaliseName(passportFirst);
-  const pl = normaliseName(passportLast);
+  const parts = (...vals) => normaliseName(vals.filter(Boolean).join(" "))
+    .split(" ").filter(Boolean);
 
-  if (!pf && !pl) return { comparable: false, matches: null, reason: "no passport name" };
-  if (!rf && !rl) return { comparable: false, matches: null, reason: "no name on record" };
+  const recorded = parts(recordedFirst, recordedLast);
+  const surname = parts(passportLast);
+  const given = parts(passportFirst);
 
-  // The passport's given-name field can carry several names ("John Michael").
-  // The recorded first name matching the FIRST of them is agreement.
-  const passportGiven = pf.split(" ").filter(Boolean);
-  const recordedGiven = rf.split(" ").filter(Boolean);
+  if (surname.length === 0 && given.length === 0) {
+    return { comparable: false, matches: null, reason: "no passport name" };
+  }
+  if (recorded.length === 0) return { comparable: false, matches: null, reason: "no name on record" };
 
-  const firstMatches = passportGiven.length > 0 && recordedGiven.length > 0
-    && passportGiven[0] === recordedGiven[0];
-  const lastMatches = pl === rl;
+  // The PASSPORT's split is authoritative; the record's is not. So the
+  // document decides which parts are surname and which are given names, and
+  // the record is checked against that:
+  //
+  //   - every part of the surname must appear on the record. A missing one is
+  //     a mismatch ("Reynolds" against a passport reading REYNOLDS CRUZ): the
+  //     ticket has to carry the whole family name.
+  //   - whatever is left on the record must all be given names on the
+  //     passport. An extra part that isn't is the Jutz/Kunz case.
+  //   - given names on the passport that the record lacks are fine: a contact
+  //     record often has no room for a middle name.
+  const pool = recorded.slice();
+  const take = (part) => {
+    const at = pool.indexOf(part);
+    if (at === -1) return false;
+    pool.splice(at, 1);
+    return true;
+  };
+
+  const surnameMissing = surname.filter(part => !take(part));
+  // Everything still in the pool should be a given name on the passport.
+  const givenPool = given.slice();
+  const unmatchedOnRecord = pool.filter(part => {
+    const at = givenPool.indexOf(part);
+    if (at === -1) return true;
+    givenPool.splice(at, 1);
+    return false;
+  });
 
   return {
     comparable: true,
-    matches: firstMatches && lastMatches,
-    firstMatches,
-    lastMatches,
+    matches: surnameMissing.length === 0 && unmatchedOnRecord.length === 0,
+    surnameMissing,                 // family-name parts the record is missing
+    unmatchedOnRecord,              // parts on the record the passport doesn't have
+    missingFromRecord: givenPool,   // given names the record lacks — not a fault
   };
 }
 

@@ -65,6 +65,37 @@ test("a hyphenated surname matches its MRZ spacing", () => {
   assert.equal(r.matches, true);
 });
 
+test("where the CRM splits the name does not affect the comparison", () => {
+  // Real failure: "Samuel James Cottle" was flagged as DIFFERING from a
+  // passport reading COTTLE, SAMUEL JAMES, because the contact was stored
+  // as firstname "Samuel", lastname "James Cottle". Where the split falls
+  // is arbitrary and says nothing about the person's name.
+  const a = compareNames({
+    recordedFirst: "Samuel James", recordedLast: "Cottle",
+    passportFirst: "SAMUEL JAMES", passportLast: "COTTLE",
+  });
+  const b = compareNames({
+    recordedFirst: "Samuel", recordedLast: "James Cottle",
+    passportFirst: "SAMUEL JAMES", passportLast: "COTTLE",
+  });
+  assert.equal(a.matches, true);
+  assert.equal(b.matches, true, "the split must not decide the verdict");
+});
+
+test("a wrong middle name is a mismatch, not a free pass", () => {
+  // Real failure in the other direction: "Luisa Charlotte Jutz" was reported
+  // as MATCHING a passport reading LUISA CHARLOTTE KUNZ, because only the
+  // first given name and the surname were compared and the wrong third name
+  // fell in the gap. That is the single most dangerous outcome here — a
+  // green tick on a name that would fail at check-in.
+  const r = compareNames({
+    recordedFirst: "Luisa Charlotte Jutz", recordedLast: "Shelton",
+    passportFirst: "LUISA CHARLOTTE KUNZ", passportLast: "SHELTON",
+  });
+  assert.equal(r.matches, false);
+  assert.deepEqual(r.unmatchedOnRecord, ["JUTZ"]);
+});
+
 test("a passport middle name the record lacks is not a mismatch", () => {
   const r = compareNames({
     recordedFirst: "John", recordedLast: "Smith",
@@ -79,8 +110,20 @@ test("a shortened first name IS a mismatch — this is the case that breaks book
     passportFirst: "Jonathan", passportLast: "Smith",
   });
   assert.equal(r.matches, false);
-  assert.equal(r.firstMatches, false);
-  assert.equal(r.lastMatches, true);
+  // The surname is fine; it's the given name the record got wrong.
+  assert.deepEqual(r.surnameMissing, []);
+  assert.deepEqual(r.unmatchedOnRecord, ["JON"]);
+});
+
+test("a record missing part of a double-barrelled surname is a mismatch", () => {
+  // Distinct from a missing middle name, which is fine: a ticket has to
+  // carry the whole family name.
+  const r = compareNames({
+    recordedFirst: "Ana", recordedLast: "Reynolds",
+    passportFirst: "ANA", passportLast: "REYNOLDS-CRUZ",
+  });
+  assert.equal(r.matches, false);
+  assert.deepEqual(r.surnameMissing, ["CRUZ"]);
 });
 
 test("a different surname is a mismatch", () => {

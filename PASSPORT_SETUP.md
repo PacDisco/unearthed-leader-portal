@@ -156,10 +156,30 @@ MRZ:
 - apostrophes removed — `O'Brien` = `OBRIEN`
 - hyphens become a space — `Smith-Jones` = `SMITH<JONES`
 
-A middle name on the passport that the contact record doesn't have is **not** a
-mismatch — the contact only holds first and last. A shortened first name
-(`Jon` vs `Jonathan`) **is** a mismatch, because that's the case that fails at
-check-in.
+Names are compared as a **set of name parts**, using the PASSPORT's split as
+authoritative — because the CRM's split isn't. Comparing field against field
+failed in both directions on real records:
+
+- "Samuel James Cottle" was flagged as *differing* from a passport reading
+  COTTLE, SAMUEL JAMES, because the contact happened to be stored as
+  firstname "Samuel", lastname "James Cottle".
+- "Luisa Charlotte Jutz" was reported as *matching* a passport reading
+  LUISA CHARLOTTE KUNZ, because only the first given name and the surname
+  were compared and the wrong third name fell in the gap. A green tick on a
+  name that would fail at check-in is the worst outcome this can produce.
+
+The rule now:
+
+- every part of the passport **surname** must appear on the record —
+  "Reynolds" against a passport reading REYNOLDS-CRUZ is a mismatch, because
+  a ticket has to carry the whole family name
+- everything else on the record must be a **given name on the passport** —
+  an extra part that isn't is the Jutz/Kunz case
+- given names the record **lacks** are fine; a contact record often has no
+  room for a middle name
+
+So `Jon` against `Jonathan` is still a mismatch, and where the CRM puts the
+first/last split no longer affects the verdict.
 
 An unread passport is never shown as a mismatch, only as unchecked.
 
@@ -317,6 +337,14 @@ A cached result is only served when it holds **every** verdict currently
 reported. A record read before the date checks shipped has no dob or expiry
 verdict, so it is re-read rather than served with those two checks blank
 forever. Uploading a new photo, or pressing RE-READ, also forces a fresh read.
+
+### A verdict needs something behind it
+
+On a fresh read with no value for a field, nothing was compared, so any
+verdict carried over from an earlier read is stale and is shown as *not
+found on the passport* rather than as a verdict. Without that guard the panel
+displayed green ticks and "matches" on the number, date of birth and expiry
+while simultaneously reporting that nothing had been verified.
 
 ### What a cached view can and cannot say
 
