@@ -162,21 +162,32 @@ export async function handler(event) {
       // lands a clean transcription. The check digits still decide whether
       // we accept it, so this raises the hit rate without lowering the bar.
       //
-      // A sideways or upside-down scan is the commonest cause of slipped
-      // characters, so when the first read says the page is turned, the
-      // retry is made on an upright copy of the image instead.
+      // Which way to turn the image for the retries: the direction the first
+      // read reported, and if it reported none, both quarter-turns — a
+      // sideways scan is by far the commonest cause of a failed read, and
+      // the model doesn't always notice the page is turned. PDFs can't be
+      // rotated here and just get the plain retry.
+      // Each read takes ~3–5s; stop starting new ones past this point so the
+      // function finishes well inside Netlify's time limit.
+      const deadline = Date.now() + 15000;
+      const attempts = [`1:${file.mediaType}:rot=${read.rotation || 0}:${read.verified ? "ok" : "fail"}`];
       if (!read.verified) {
-        const upright = (!file.isPdf && read.rotation) ? rotateImage(file, read.rotation) : null;
-        const second = await readPassportFile(upright ? { ...upright, isPdf: false } : file, { retry: true });
-        if (second.verified) {
-          read = second;
-          if (upright) console.info(`[read-passport] verified after rotating ${read.rotation || "?"}°`);
-        } else if (upright) {
-          // One last try on the original, in case the rotation was wrong.
-          const third = await readPassportFile(file, { retry: true });
-          if (third.verified) read = third;
+        const turns = file.isPdf ? [] : (read.rotation ? [read.rotation] : [90, 270]);
+        for (const deg of turns) {
+          if (Date.now() > deadline) { attempts.push("out-of-time"); break; }
+          const upright = rotateImage(file, deg);
+          if (!upright) { attempts.push(`turn${deg}:could-not-rotate`); continue; }
+          const next = await readPassportFile({ ...upright, isPdf: false }, { retry: true });
+          attempts.push(`turn${deg}:${next.verified ? "ok" : "fail"}`);
+          if (next.verified) { read = next; break; }
         }
       }
+      if (!read.verified && Date.now() <= deadline) {
+        const again = await readPassportFile(file, { retry: true });
+        attempts.push(`retry:${again.verified ? "ok" : "fail"}`);
+        if (again.verified) read = again;
+      }
+      console.info(`[read-passport] attempts ${attempts.join(" ")}`);
     } catch (err) {
       console.error("[read-passport] vision call failed:", err?.message || err);
       return json(200, {
@@ -544,7 +555,7 @@ function interpretTranscription(parsed) {
   // Check digits first on the exact copy; if that fails, on structural
   // repairs only (miscounted fillers, O-for-0 in a date) — see mrz.js.
   const mrz = parseMrzWithRepair(parsed.mrz_line1, parsed.mrz_line2);
-  if (mrz.ok && mrz.repaired) console.info("[read-passport] MRZ verified after filler/look-alike repair");
+  if (mrz.ok && mrz.repaired) console.info(`[read-passport] MRZ verified after repair (${mrz.repaired})`);
 
   // Diagnostics for a failed read. Without these there is no way to tell a
   // transcription that was one character out from one that was garbage —

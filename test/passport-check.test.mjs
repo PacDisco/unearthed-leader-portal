@@ -886,5 +886,19 @@ test("a sideways scan is turned upright before the retry", async () => {
   assert.equal(second.height, 40);
 });
 
+test("when the model doesn't report a rotation, both quarter-turns are tried", async () => {
+  const jpeg = (await import("jpeg-js")).default;
+  const w = 40, h = 20, px = new Uint8Array(w * h * 4).fill(200);
+  const fileData = new Uint8Array(jpeg.encode({ data: px, width: w, height: h }, 90).data);
+  const bad = { mrz_line1: MRZ_L1, mrz_line2: "garbled", found: true, rotation: 0, reason: "" };
+  stubFetch({ fileData, visionReplies: [bad, bad] }); // 3rd call (turn 270) verifies
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
+  assert.equal(body.verified, true);
+  assert.equal(sent.visionCalls, 3);
+  const d2 = jpeg.decode(Buffer.from(sent.visionImages[1], "base64"));
+  const d3 = jpeg.decode(Buffer.from(sent.visionImages[2], "base64"));
+  assert.equal(d2.width, 20); assert.equal(d3.width, 20);
+});
+
 await run();
 console.log(`\n${passed} passed`);

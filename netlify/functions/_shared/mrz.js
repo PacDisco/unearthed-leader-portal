@@ -260,14 +260,75 @@ export function repairMrzCandidates(line1, line2) {
   return [...out].map(l2 => [line1, l2]);
 }
 
-// parseMrz, then — only if that fails — each structural repair in turn.
-// `repaired` says which happened, for logging.
+// Look-alike characters inside the PASSPORT NUMBER (D for 0 is the one seen
+// on real scans). Unlike the date fields, a passport number can hold letters
+// AND digits, so neither reading can be ruled out by position — only by the
+// check digits. A variant is therefore accepted only when:
+//   - it differs from the transcription in at most two characters, each a
+//     known look-alike pair
+//   - the passport-number check digit AND the overall check digit both pass
+//     (and every other check, via parseMrz)
+//   - it is the ONLY passing variant with the fewest changes. One slipped
+//     character is far likelier than two, so a unique one-character fix is
+//     taken even if some two-character variant also happens to pass (on
+//     Luisa's scan, RBD13901 -> RB013901 is one change; RBDI39O1 also passes
+//     but needs two). Two passing variants at the same distance means the
+//     check digits can't tell them apart, and nothing is returned.
+const NUMBER_LOOKALIKES = {
+  "0": ["O", "D", "Q"], O: ["0"], D: ["0"], Q: ["0"],
+  "1": ["I"], I: ["1"], L: ["1"],
+  "2": ["Z"], Z: ["2"],
+  "5": ["S"], S: ["5"],
+  "6": ["G"], G: ["6"],
+  "8": ["B"], B: ["8"],
+};
+
+function numberVariants(l2) {
+  const head = l2.slice(0, 9).split("");
+  const tail = l2.slice(9);
+  const spots = head.map((c, i) => (NUMBER_LOOKALIKES[c] ? i : -1)).filter(i => i >= 0);
+  const out = [];
+  for (let a = 0; a < spots.length; a++) {
+    for (const ca of NUMBER_LOOKALIKES[head[spots[a]]]) {
+      const one = head.slice(); one[spots[a]] = ca;
+      out.push({ line: one.join("") + tail, changes: 1 });
+      for (let b = a + 1; b < spots.length; b++) {
+        for (const cb of NUMBER_LOOKALIKES[head[spots[b]]]) {
+          const two = one.slice(); two[spots[b]] = cb;
+          out.push({ line: two.join("") + tail, changes: 2 });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// parseMrz, then — only if that fails — each structural repair in turn, then
+// look-alikes in the passport number. `repaired` says which happened.
 export function parseMrzWithRepair(line1, line2, now = new Date()) {
   const direct = parseMrz(line1, line2, now);
   if (direct.ok) return { ...direct, repaired: false };
-  for (const [l1, l2] of repairMrzCandidates(line1, line2)) {
+
+  const structural = repairMrzCandidates(line1, line2);
+  for (const [l1, l2] of structural) {
     const attempt = parseMrz(l1, l2, now);
-    if (attempt.ok) return { ...attempt, repaired: true };
+    if (attempt.ok) return { ...attempt, repaired: "structure" };
   }
+
+  // Passport-number look-alikes, on the original and on each structural fix.
+  const bases = [tidyLine(line2), ...structural.map(([, l2]) => l2)];
+  for (const changes of [1, 2]) {
+    const passing = new Map(); // documentNumber -> parsed
+    for (const base of bases) {
+      for (const v of numberVariants(base)) {
+        if (v.changes !== changes) continue;
+        const attempt = parseMrz(line1, v.line, now);
+        if (attempt.ok) passing.set(attempt.fields.documentNumber, attempt);
+      }
+    }
+    if (passing.size === 1) return { ...[...passing.values()][0], repaired: `number-lookalike-${changes}` };
+    if (passing.size > 1) break; // ambiguous at this distance: refuse
+  }
+
   return { ...direct, repaired: false };
 }

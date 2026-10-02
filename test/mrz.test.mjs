@@ -201,5 +201,31 @@ test("a wrong character in the passport number is never repaired", () => {
   assert.equal(r.number, "");
 });
 
+// --- passport-number look-alikes (from the real failed reads) ---------------
+
+test("D read for 0 in the passport number is repaired by the check digits", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: "RBD13901<0NZL0911278F2902212" + "<".repeat(14) + "00", found: true });
+  assert.equal(r.verified, true);
+  assert.equal(r.number, "RB013901");
+});
+
+test("D for 0 AND a dropped filler (43 characters) together are repaired", () => {
+  const r = interpretRead({ mrz_line1: L1.slice(0, 43), mrz_line2: "RBD13901<0NZL0911278F2902212" + "<".repeat(13) + "00", found: true });
+  assert.equal(r.verified, true);
+  assert.equal(r.number, "RB013901");
+  assert.equal(r.dob, "2009-11-27");
+});
+
+test("D for 0 with the number's filler dropped is repaired", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: "RBD139010NZL0911278F2902212" + "<".repeat(14) + "00", found: true });
+  assert.equal(r.verified, true);
+  assert.equal(r.number, "RB013901");
+});
+
+test("a passport number that is wrong in a non-look-alike way is still refused", () => {
+  const r = interpretRead({ mrz_line1: L1, mrz_line2: "RB713901<0NZL0911278F2902212" + "<".repeat(14) + "00", found: true });
+  assert.equal(r.verified, false);
+});
+
 run();
 console.log(`\n${passed} passed`);
