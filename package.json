@@ -10,6 +10,7 @@
   "dependencies": {
     "jpeg-js": "^0.4.4",
     "nodemailer": "^6.9.16",
+    "pdf-lib": "^1.17.1",
     "pngjs": "^7.0.0",
     "web-push": "^3.6.7"
   },

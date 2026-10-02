@@ -13,16 +13,19 @@
 import jpeg from "jpeg-js";
 import { PNG } from "pngjs";
 
-const MAX_PIXELS = 25_000_000; // ~100MB of RGBA; bigger than any phone photo
+const MAX_PIXELS = 60_000_000;  // decode cap (~240MB RGBA); scanner pages are well under
+const MAX_SIDE = 2000;           // the model downsizes to ~1.5k anyway; this keeps payloads small
 
+// `degrees`: 0, 90, 180 or 270 clockwise. 0 still re-encodes (and downsizes),
+// which is how an oversized photo pulled out of a PDF is made sendable.
 export function rotateImage({ base64, mediaType }, degrees) {
   const turn = ((Number(degrees) % 360) + 360) % 360;
-  if (![90, 180, 270].includes(turn)) return null;
+  if (![0, 90, 180, 270].includes(turn)) return null;
   try {
     const input = Buffer.from(base64, "base64");
     let width, height, data;
     if (mediaType === "image/jpeg") {
-      ({ width, height, data } = jpeg.decode(input, { useTArray: true, maxMemoryUsageInMB: 512 }));
+      ({ width, height, data } = jpeg.decode(input, { useTArray: true, maxMemoryUsageInMB: 1024, maxResolutionInMP: 100 }));
     } else if (mediaType === "image/png") {
       ({ width, height, data } = PNG.sync.read(input));
     } else {
@@ -30,18 +33,27 @@ export function rotateImage({ base64, mediaType }, degrees) {
     }
     if (width * height > MAX_PIXELS) return null;
 
-    const outW = turn === 180 ? width : height;
-    const outH = turn === 180 ? height : width;
+    // Box-free nearest-neighbour downscale folded into the rotation: for each
+    // OUTPUT pixel, find its source pixel. Plenty for text at this size.
+    const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
+    const sw = Math.max(1, Math.round(width * scale));
+    const sh = Math.max(1, Math.round(height * scale));
+    const outW = (turn === 90 || turn === 270) ? sh : sw;
+    const outH = (turn === 90 || turn === 270) ? sw : sh;
     const out = Buffer.alloc(outW * outH * 4);
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        let nx, ny;
-        if (turn === 90) { nx = height - 1 - y; ny = x; }
-        else if (turn === 180) { nx = width - 1 - x; ny = height - 1 - y; }
-        else { nx = y; ny = width - 1 - x; }
-        const s = (y * width + x) * 4;
-        const d = (ny * outW + nx) * 4;
-        out[d] = data[s]; out[d + 1] = data[s + 1]; out[d + 2] = data[s + 2]; out[d + 3] = 255;
+    for (let oy = 0; oy < outH; oy++) {
+      for (let ox = 0; ox < outW; ox++) {
+        // position in the scaled, un-rotated image
+        let x, y;
+        if (turn === 0) { x = ox; y = oy; }
+        else if (turn === 90) { x = oy; y = sh - 1 - ox; }
+        else if (turn === 180) { x = sw - 1 - ox; y = sh - 1 - oy; }
+        else { x = sw - 1 - oy; y = ox; }
+        const srcX = Math.min(width - 1, Math.floor(x / scale));
+        const srcY = Math.min(height - 1, Math.floor(y / scale));
+        const s4 = (srcY * width + srcX) * 4;
+        const d4 = (oy * outW + ox) * 4;
+        out[d4] = data[s4]; out[d4 + 1] = data[s4 + 1]; out[d4 + 2] = data[s4 + 2]; out[d4 + 3] = 255;
       }
     }
     const encoded = jpeg.encode({ data: out, width: outW, height: outH }, 92);

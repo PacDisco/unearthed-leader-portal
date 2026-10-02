@@ -30,6 +30,7 @@ import { APPLICATION_FORM_IDS_CSV } from "./_shared/application-forms.js";
 import { findSubmissionByEmail } from "./lib/jotform.js";
 import { parseMrzWithRepair } from "./_shared/mrz.js";
 import { rotateImage } from "./_shared/image-rotate.js";
+import { largestJpegFromPdf } from "./_shared/pdf-image.js";
 import { isPassportDriveUrl, fetchPassportDriveFile } from "./_shared/passport-widget.js";
 import {
   PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT, DATE_VERDICT,
@@ -171,11 +172,28 @@ export async function handler(event) {
       // function finishes well inside Netlify's time limit.
       const deadline = Date.now() + 15000;
       const attempts = [`1:${file.mediaType}:rot=${read.rotation || 0}:${read.verified ? "ok" : "fail"}`];
-      if (!read.verified) {
-        const turns = file.isPdf ? [] : (read.rotation ? [read.rotation] : [90, 270]);
-        for (const deg of turns) {
+      // A scanner-app PDF is usually one JPEG in a page: take it out so it
+      // can be turned like a photo. The model's rotation was judged on the
+      // page as displayed, which is the JPEG turned by the page's /Rotate.
+      let photo = file.isPdf ? null : file;
+      let extraTurn = 0;
+      if (!read.verified && file.isPdf) {
+        const extracted = await largestJpegFromPdf(file.base64);
+        if (extracted) {
+          photo = { base64: extracted.base64, mediaType: "image/jpeg", isPdf: false };
+          extraTurn = extracted.pageRotation;
+          attempts.push(`pdf-jpeg:rotate=${extraTurn}`);
+        } else {
+          attempts.push("pdf-jpeg:none");
+        }
+      }
+      if (!read.verified && photo) {
+        const turns = read.rotation ? [read.rotation] : [90, 270];
+        if (file.isPdf) turns.push(0); // the bare JPEG, un-turned, is worth one read too
+        for (const t of turns) {
           if (Date.now() > deadline) { attempts.push("out-of-time"); break; }
-          const upright = rotateImage(file, deg);
+          const deg = (t + extraTurn) % 360;
+          const upright = rotateImage(photo, deg);
           if (!upright) { attempts.push(`turn${deg}:could-not-rotate`); continue; }
           const next = await readPassportFile({ ...upright, isPdf: false }, { retry: true });
           attempts.push(`turn${deg}:${next.verified ? "ok" : "fail"}`);

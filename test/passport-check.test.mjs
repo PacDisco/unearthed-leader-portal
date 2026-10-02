@@ -900,5 +900,26 @@ test("when the model doesn't report a rotation, both quarter-turns are tried", a
   assert.equal(d2.width, 20); assert.equal(d3.width, 20);
 });
 
+test("a sideways scanner PDF has its photo pulled out and turned upright", async () => {
+  const jpeg = (await import("jpeg-js")).default;
+  const { PDFDocument } = await import("pdf-lib");
+  const w = 60, h = 30, px = new Uint8Array(w * h * 4).fill(180);
+  const jpg = new Uint8Array(jpeg.encode({ data: px, width: w, height: h }, 90).data);
+  const pdf = await PDFDocument.create();
+  const img = await pdf.embedJpg(jpg);
+  const page = pdf.addPage([w, h]);
+  page.drawImage(img, { x: 0, y: 0, width: w, height: h });
+  const fileData = new Uint8Array(await pdf.save());
+
+  const bad = { mrz_line1: MRZ_L1, mrz_line2: "garbled", found: true, rotation: 90, reason: "" };
+  stubFetch({ fileData, fileType: "application/pdf", visionReplies: [bad] }); // 2nd call verifies
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
+  assert.equal(body.verified, true);
+  assert.equal(sent.visionCalls, 2);
+  const turned = jpeg.decode(Buffer.from(sent.visionImages[1], "base64"));
+  assert.equal(turned.width, 30);   // 60x30 turned a quarter
+  assert.equal(turned.height, 60);
+});
+
 await run();
 console.log(`\n${passed} passed`);
