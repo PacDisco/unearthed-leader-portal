@@ -18,13 +18,17 @@ const MAX_SIDE = 2000;           // the model downsizes to ~1.5k anyway; this ke
 
 // `degrees`: 0, 90, 180 or 270 clockwise. 0 still re-encodes (and downsizes),
 // which is how an oversized photo pulled out of a PDF is made sendable.
-export function rotateImage({ base64, mediaType }, degrees) {
+// Also accepts already-decoded pixels — { pixels: { width, height, data } }
+// with RGBA data — which is how an image pulled out of a PDF arrives.
+export function rotateImage({ base64, mediaType, pixels }, degrees) {
   const turn = ((Number(degrees) % 360) + 360) % 360;
   if (![0, 90, 180, 270].includes(turn)) return null;
   try {
-    const input = Buffer.from(base64, "base64");
     let width, height, data;
-    if (mediaType === "image/jpeg") {
+    const input = pixels ? null : Buffer.from(base64, "base64");
+    if (pixels) {
+      ({ width, height, data } = pixels);
+    } else if (mediaType === "image/jpeg") {
       ({ width, height, data } = jpeg.decode(input, { useTArray: true, maxMemoryUsageInMB: 1024, maxResolutionInMP: 100 }));
     } else if (mediaType === "image/png") {
       ({ width, height, data } = PNG.sync.read(input));

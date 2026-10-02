@@ -30,7 +30,7 @@ import { APPLICATION_FORM_IDS_CSV } from "./_shared/application-forms.js";
 import { findSubmissionByEmail } from "./lib/jotform.js";
 import { parseMrzWithRepair } from "./_shared/mrz.js";
 import { rotateImage } from "./_shared/image-rotate.js";
-import { largestJpegFromPdf } from "./_shared/pdf-image.js";
+import { largestImageFromPdf } from "./_shared/pdf-image.js";
 import { isPassportDriveUrl, fetchPassportDriveFile } from "./_shared/passport-widget.js";
 import {
   PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT, DATE_VERDICT,
@@ -178,13 +178,15 @@ export async function handler(event) {
       let photo = file.isPdf ? null : file;
       let extraTurn = 0;
       if (!read.verified && file.isPdf) {
-        const extracted = await largestJpegFromPdf(file.base64);
-        if (extracted) {
-          photo = { base64: extracted.base64, mediaType: "image/jpeg", isPdf: false };
+        const extracted = await largestImageFromPdf(file.base64);
+        if (extracted && !extracted.none) {
+          photo = extracted.pixels
+            ? { pixels: extracted.pixels, isPdf: false }
+            : { base64: extracted.base64, mediaType: "image/jpeg", isPdf: false };
           extraTurn = extracted.pageRotation;
-          attempts.push(`pdf-jpeg:rotate=${extraTurn}`);
+          attempts.push(`pdf-image:${extracted.found}:rotate=${extraTurn}`);
         } else {
-          attempts.push("pdf-jpeg:none");
+          attempts.push(`pdf-image:none(${extracted?.none || "?"})`);
         }
       }
       if (!read.verified && photo) {

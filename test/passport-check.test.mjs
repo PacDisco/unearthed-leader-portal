@@ -921,5 +921,25 @@ test("a sideways scanner PDF has its photo pulled out and turned upright", async
   assert.equal(turned.height, 60);
 });
 
+test("a PDF holding raw (Flate) pixels is decoded and turned upright too", async () => {
+  const jpeg = (await import("jpeg-js")).default;
+  const { PNG } = await import("pngjs");
+  const { PDFDocument } = await import("pdf-lib");
+  const png = new PNG({ width: 60, height: 30 });
+  png.data.fill(160);
+  const pdf = await PDFDocument.create();
+  const img = await pdf.embedPng(PNG.sync.write(png));
+  pdf.addPage([60, 30]).drawImage(img, { x: 0, y: 0, width: 60, height: 30 });
+  const fileData = new Uint8Array(await pdf.save());
+
+  const bad = { mrz_line1: MRZ_L1, mrz_line2: "garbled", found: true, rotation: 270, reason: "" };
+  stubFetch({ fileData, fileType: "application/pdf", visionReplies: [bad] });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
+  assert.equal(body.verified, true);
+  const turned = jpeg.decode(Buffer.from(sent.visionImages[1], "base64"));
+  assert.equal(turned.width, 30);
+  assert.equal(turned.height, 60);
+});
+
 await run();
 console.log(`\n${passed} passed`);
