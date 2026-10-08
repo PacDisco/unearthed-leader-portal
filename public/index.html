@@ -5185,7 +5185,10 @@
     // anyone looking at the passport; without it, this has misread the same
     // surname three different ways. EDIT is still there for typing what you
     // can see on the document.
-    const verified = state.verified !== false;
+    // Did the machine-readable zone verify? (Absent on a cached view, whose
+    // stored name only exists because an earlier read verified.) Not to be
+    // confused with state.verified — the office's "checked manually" tick.
+    const verified = state.mrzVerified !== false;
 
     // A verdict is only meaningful if something was actually compared. On a
     // FRESH read with no value for a field, there was nothing to compare
@@ -5286,6 +5289,9 @@
       if (hard.length) parts.push(`The ${join(hard)} on record ${hard.length === 1 ? "differs" : "differ"} from the passport.`);
       if (soft.length) parts.push(`The ${join(soft)} ${soft.length === 1 ? "needs" : "need"} checking against it — the value could be read more than one way.`);
       if (gaps.length) parts.push(`The ${join(gaps)} ${gaps.length === 1 ? "is" : "are"} missing from the record — the passport has ${gaps.length === 1 ? "it" : "them"}.`);
+      if (state.nameIssue === "not_verbatim" && problems.some(p => p.key === "name")) {
+        parts.push("The name has to be on record exactly as the passport prints it — every given name in First name, the surname in Last name.");
+      }
       parts.push("A booking has to match the passport.");
       message = parts.join(" ");
     } else if (rows.some(r => r.verdict === "match")) {
@@ -5304,13 +5310,14 @@
 
     panel.innerHTML = `
       <div class="passport-panel-label">PASSPORT CHECK${
-        state.verified === false && state.status === "ok"
+        state.mrzVerified === false && state.status === "ok"
           ? ` <span class="passport-unverified">— NOT VERIFIED</span>` : ""
       }</div>
       ${renderPassportTable(rows, state)}
       ${message ? `<div class="passport-panel-message">${attrEsc(message)}</div>` : ""}
       <div class="passport-panel-actions">
         ${applicable.length > 1 ? `<button class="passport-btn" type="button" id="passportApplyAllBtn">USE ALL ${applicable.length} FROM PASSPORT</button>` : ""}
+        ${renderPassportUploadButton(state)}
         <button class="passport-btn passport-btn--secondary" type="button" id="passportRereadBtn">RE-READ PASSPORT</button>
       </div>
       ${renderPassportCheckbox(state)}
@@ -5410,6 +5417,16 @@
 
   function wirePassportPanel() {
     document.getElementById("passportRereadBtn")?.addEventListener("click", rereadPassport);
+    const uploadBtn = document.getElementById("passportUploadBtn");
+    const uploadInput = document.getElementById("passportUploadInput");
+    if (uploadBtn && uploadInput) {
+      uploadBtn.addEventListener("click", () => uploadInput.click());
+      uploadInput.addEventListener("change", () => {
+        const f = uploadInput.files && uploadInput.files[0];
+        uploadInput.value = "";
+        if (f) uploadPassportFile(f, uploadBtn);
+      });
+    }
     document.getElementById("passportApplyAllBtn")?.addEventListener("click", (e) => applyPassportField("all", e.currentTarget));
     document.getElementById("passportVerifiedBox")?.addEventListener("change", togglePassportVerified);
     document.querySelectorAll("#passportPanel [data-apply]").forEach(btn => {
@@ -5533,6 +5550,96 @@
       application[field.qid] = value;
     }
     return { application, contact };
+  }
+
+  // UPLOAD PASSPORT — offered when there's no passport to check, or the one on
+  // file can't be read. The panel itself is only shown to people who can edit
+  // the roster (canEditRoster), and upload-passport.js checks that again.
+  const PASSPORT_UPLOAD_MAX = 4 * 1024 * 1024;   // keep in step with upload-passport.js
+
+  function renderPassportUploadButton(state) {
+    const needsFile = ["no_photo", "unsupported", "unreadable"].includes(state.status);
+    if (!needsFile) return "";
+    const label = state.status === "no_photo" ? "UPLOAD PASSPORT" : "UPLOAD A NEW PASSPORT PHOTO";
+    return `<button class="passport-btn" type="button" id="passportUploadBtn">${label}</button>
+      <input type="file" id="passportUploadInput" hidden
+             accept="image/jpeg,image/png,image/webp,application/pdf">`;
+  }
+
+  // Large phone photos are shrunk before upload (Netlify caps a request at
+  // ~6MB). 2600px on the long edge keeps the machine-readable zone sharp.
+  function shrinkImage(file, maxEdge = 2600, quality = 0.9) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error("couldn't process that image")), "image/jpeg", quality);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("that image couldn't be opened")); };
+      img.src = url;
+    });
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1] || "");
+      r.onerror = () => reject(r.error || new Error("couldn't read the file"));
+      r.readAsDataURL(blob);
+    });
+  }
+
+  async function uploadPassportFile(file, btn) {
+    if (!__modalPerson?.email) return;
+    const original = btn ? btn.textContent : "";
+    const done = (msg) => {
+      if (msg) setPassportMessage(msg);
+      if (btn) { btn.disabled = false; btn.textContent = original; }
+    };
+    if (isOffline()) return done("You're offline. Reconnect to upload a passport.");
+
+    const type = String(file.type || "").toLowerCase();
+    const name = String(file.name || "").toLowerCase();
+    if (/hei[cf]$/.test(type) || /\.hei[cf]$/.test(name)) {
+      return done("iPhone HEIC photos can't be read. Export it as a JPEG (or take a screenshot of it) and upload that.");
+    }
+    const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+    const isImage = /^image\/(jpeg|png|webp|gif)$/.test(type);
+    if (!isPdf && !isImage) return done("Upload a photo (JPEG, PNG or WebP) or a PDF of the passport photo page.");
+
+    if (btn) { btn.disabled = true; btn.textContent = "UPLOADING…"; }
+    try {
+      let blob = file;
+      if (isImage && file.size > 2.5 * 1024 * 1024) blob = await shrinkImage(file);
+      if (blob.size > PASSPORT_UPLOAD_MAX) {
+        return done(`That file is ${(blob.size / 1024 / 1024).toFixed(1)}MB — the limit is 4MB. ${isPdf ? "Try a photo of the page instead of a scanned PDF." : ""}`);
+      }
+      const res = await apiFetch("/.netlify/functions/upload-passport", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: __modalPerson.email,
+          fileName: file.name || "",
+          contentType: blob.type || type,
+          data: await blobToBase64(blob),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) return done(data.error || `Couldn't upload that (HTTP ${res.status}).`);
+
+      setPassportMessage("Uploaded and attached to their record. Reading the passport…");
+      refreshCurrentRoster();
+      __forcePassportRead = true;
+      setTimeout(() => openApplicationModal(__modalPerson.email, __modalPerson.name, __modalPerson.tripLeaderOnly), 600);
+    } catch (err) {
+      done(`Couldn't upload that: ${err.message || String(err)}`);
+    }
   }
 
   // One click to put what the passport says onto the record. `kind` is one of

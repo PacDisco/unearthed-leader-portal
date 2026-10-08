@@ -81,7 +81,11 @@ test("where the CRM splits the name does not affect the comparison", () => {
     passportFirst: "SAMUEL JAMES", passportLast: "COTTLE",
   });
   assert.equal(a.matches, true);
-  assert.equal(b.matches, true, "the split must not decide the verdict");
+  // Verbatim rule: the same names split differently are flagged, but as
+  // "not verbatim" rather than as a different person's name.
+  assert.equal(b.matches, false, "the record must carry the passport's split");
+  assert.equal(b.issue, "not_verbatim");
+  assert.equal(b.sameParts, true);
 });
 
 test("a wrong middle name is a mismatch, not a free pass", () => {
@@ -98,12 +102,23 @@ test("a wrong middle name is a mismatch, not a free pass", () => {
   assert.deepEqual(r.unmatchedOnRecord, ["JUTZ"]);
 });
 
-test("a passport middle name the record lacks is not a mismatch", () => {
+test("a passport middle name the record lacks is not verbatim", () => {
   const r = compareNames({
     recordedFirst: "John", recordedLast: "Smith",
     passportFirst: "John Michael", passportLast: "Smith",
   });
+  assert.equal(r.matches, false);
+  assert.equal(r.issue, "not_verbatim");
+  assert.deepEqual(r.missingFromRecord, ["MICHAEL"]);
+});
+
+test("verbatim ignores case and accents (the MRZ can't carry them)", () => {
+  const r = compareNames({
+    recordedFirst: "Zoë Anne", recordedLast: "Müller",
+    passportFirst: "ZOE ANNE", passportLast: "MULLER",
+  });
   assert.equal(r.matches, true);
+  assert.equal(r.issue, null);
 });
 
 test("a shortened first name IS a mismatch — this is the case that breaks bookings", () => {
@@ -112,6 +127,7 @@ test("a shortened first name IS a mismatch — this is the case that breaks book
     passportFirst: "Jonathan", passportLast: "Smith",
   });
   assert.equal(r.matches, false);
+  assert.equal(r.issue, "different");
   // The surname is fine; it's the given name the record got wrong.
   assert.deepEqual(r.surnameMissing, []);
   assert.deepEqual(r.unmatchedOnRecord, ["JON"]);
@@ -313,6 +329,30 @@ function stubFetch(opts = {}) {
         headers: { get: () => type },
         arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
       };
+    }
+
+    m = u.match(/\/files\/v3\/files\/(\d+)\/signed-url$/);
+    if (m) {
+      sent.signedUrlFor = m[1];
+      if (opts.signedUrlFails) return jsonRes({}, false, 404);
+      return jsonRes({ url: `https://hubspot-files.test/signed/${m[1]}?sig=${Math.random()}` });
+    }
+    if (u.startsWith("https://hubspot-files.test/signed/")) {
+      sent.uploadedFetches = (sent.uploadedFetches || 0) + 1;
+      return {
+        ok: true, status: 200,
+        headers: { get: () => "image/jpeg" },
+        arrayBuffer: async () => new Uint8Array(11).buffer,
+      };
+    }
+    if (u === "https://api.hubapi.com/files/v3/files" && init.method === "POST") {
+      sent.fileUpload = init.body;
+      if (opts.fileUploadStatus) return jsonRes({ message: "nope" }, false, opts.fileUploadStatus);
+      return jsonRes({ id: "987654" });
+    }
+    if (u === "https://api.hubapi.com/crm/v3/objects/notes" && init.method === "POST") {
+      sent.note = JSON.parse(body || "{}");
+      return jsonRes({ id: "note-1" });
     }
 
     if (u.includes("api.anthropic.com/v1/messages")) {
@@ -757,7 +797,7 @@ test("a failed MRZ is retried once before giving up", async () => {
   };
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
   assert.equal(call, 2, "a failed MRZ should be retried once");
-  assert.equal(body.verified, true);
+  assert.equal(body.mrzVerified, true);
   assert.equal(body.passportDob, "2008-03-15");
 });
 
@@ -768,7 +808,7 @@ test("an unreadable MRZ yields nothing at all, with an instruction", async () =>
     mrz_line1: "", mrz_line2: "", found: false, reason: "the bottom of the page is cut off",
   } });
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
-  assert.equal(body.verified, false);
+  assert.equal(body.mrzVerified, false);
   assert.equal(body.passportLast, "");
   assert.equal(body.passportNumber, "");
   assert.equal(body.status, "unreadable");
@@ -877,7 +917,7 @@ test("a sideways scan is turned upright before the retry", async () => {
   });
   const { statusCode, body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
   assert.equal(statusCode, 200);
-  assert.equal(body.verified, true);
+  assert.equal(body.mrzVerified, true);
   assert.equal(sent.visionCalls, 2);
   // the second image is a different (rotated) image, 20x40 instead of 40x20
   assert.notEqual(sent.visionImages[1], sent.visionImages[0]);
@@ -893,7 +933,7 @@ test("when the model doesn't report a rotation, both quarter-turns are tried", a
   const bad = { mrz_line1: MRZ_L1, mrz_line2: "garbled", found: true, rotation: 0, reason: "" };
   stubFetch({ fileData, visionReplies: [bad, bad] }); // 3rd call (turn 270) verifies
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
-  assert.equal(body.verified, true);
+  assert.equal(body.mrzVerified, true);
   assert.equal(sent.visionCalls, 3);
   const d2 = jpeg.decode(Buffer.from(sent.visionImages[1], "base64"));
   const d3 = jpeg.decode(Buffer.from(sent.visionImages[2], "base64"));
@@ -914,7 +954,7 @@ test("a sideways scanner PDF has its photo pulled out and turned upright", async
   const bad = { mrz_line1: MRZ_L1, mrz_line2: "garbled", found: true, rotation: 90, reason: "" };
   stubFetch({ fileData, fileType: "application/pdf", visionReplies: [bad] }); // 2nd call verifies
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
-  assert.equal(body.verified, true);
+  assert.equal(body.mrzVerified, true);
   assert.equal(sent.visionCalls, 2);
   const turned = jpeg.decode(Buffer.from(sent.visionImages[1], "base64"));
   assert.equal(turned.width, 30);   // 60x30 turned a quarter
@@ -935,10 +975,119 @@ test("a PDF holding raw (Flate) pixels is decoded and turned upright too", async
   const bad = { mrz_line1: MRZ_L1, mrz_line2: "garbled", found: true, rotation: 270, reason: "" };
   stubFetch({ fileData, fileType: "application/pdf", visionReplies: [bad] });
   const { body } = await callRead("leader@trip.example", { email: "mia@example.com", force: true });
-  assert.equal(body.verified, true);
+  assert.equal(body.mrzVerified, true);
   const turned = jpeg.decode(Buffer.from(sent.visionImages[1], "base64"));
   assert.equal(turned.width, 30);
   assert.equal(turned.height, 60);
+});
+
+test("a clean read doesn't tick the office's 'checked manually' box", async () => {
+  // Regression: the read's own success flag was returned as `verified`, which
+  // is also the name of the manual tick — so every clean read showed as
+  // "checked by hand" and the panel hid its mismatches and USE THIS buttons.
+  stubFetch();
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(body.mrzVerified, true);
+  assert.equal(body.verified, false);
+  assert.equal(body.nameMatches, false);
+});
+
+// --- passport uploaded from the leader portal ------------------------------
+
+const { handler: uploadPassport, sniffType } = await import("../netlify/functions/upload-passport.js");
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(20)]);
+
+function callUpload(email, payload) {
+  return uploadPassport({
+    httpMethod: "POST",
+    headers: { authorization: `Bearer ${createToken({ email, role: email.includes("ops") ? "Director" : "user", ver: 0 })}` },
+    body: JSON.stringify(payload),
+  }).then(r => ({ statusCode: r.statusCode, body: JSON.parse(r.body) }));
+}
+
+test("a leader-uploaded passport is read instead of the application form's", async () => {
+  stubFetch({ contactProps: { passport_upload: "555" } });
+  const { statusCode, body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(statusCode, 200);
+  assert.equal(sent.signedUrlFor, "555");
+  assert.equal(sent.uploadedFetches, 1);
+  assert.equal(sent.imageFetches, 0, "the form's file must not be fetched");
+  assert.equal(body.passportLast, "SMITH");
+});
+
+test("the uploaded passport is cached by file id, not by its changing signed URL", async () => {
+  stubFetch({ contactProps: { passport_upload: "555" } });
+  await callRead("leader@trip.example", { email: "mia@example.com" });
+  const hash = sent.patch.passport_ocr_hash;
+  stubFetch({ contactProps: {
+    passport_upload: "555", ...sent.patch,
+  } });
+  const again = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(again.body.cached, true);
+  assert.equal(sent.visionCalls, 0);
+  assert.ok(hash);
+});
+
+test("if the uploaded file can't be fetched, the form's passport is used", async () => {
+  stubFetch({ contactProps: { passport_upload: "555" }, signedUrlFails: true });
+  const { body } = await callRead("leader@trip.example", { email: "mia@example.com" });
+  assert.equal(sent.imageFetches, 1);
+  assert.equal(body.passportLast, "SMITH");
+});
+
+test("an expedition leader can upload a passport; it's stored, linked and attached", async () => {
+  stubFetch();
+  const { statusCode, body } = await callUpload("leader@trip.example", {
+    email: "mia@example.com", fileName: "p.jpg", contentType: "image/jpeg", data: JPEG.toString("base64"),
+  });
+  assert.equal(statusCode, 200);
+  assert.equal(body.fileId, "987654");
+  assert.equal(body.attached, true);
+  assert.equal(sent.patch.passport_upload, "987654");
+  assert.equal(sent.patch.passport_ocr_hash, "", "the old read must be forgotten");
+  assert.equal(sent.note.properties.hs_attachment_ids, "987654");
+  assert.equal(sent.note.associations[0].to.id, "10");
+  const opts = JSON.parse(sent.fileUpload.get("options"));
+  assert.equal(opts.access, "PRIVATE");
+});
+
+test("a teacher can't upload a passport", async () => {
+  stubFetch();
+  const { statusCode } = await callUpload("teacher@school.example", {
+    email: "mia@example.com", data: JPEG.toString("base64"),
+  });
+  assert.equal(statusCode, 403);
+  assert.equal(sent.fileUpload, undefined);
+});
+
+test("uploads are checked by content, not by the label the browser gave them", async () => {
+  stubFetch();
+  const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypheic"), Buffer.alloc(16)]);
+  const { statusCode } = await callUpload("leader@trip.example", {
+    email: "mia@example.com", contentType: "image/jpeg", data: heic.toString("base64"),
+  });
+  assert.equal(statusCode, 415);
+  assert.equal(sniffType(Buffer.from("%PDF-1.7")), "application/pdf");
+  assert.equal(sniffType(JPEG), "image/jpeg");
+});
+
+test("an oversized upload is refused before anything is stored", async () => {
+  stubFetch();
+  const big = Buffer.concat([JPEG, Buffer.alloc(4 * 1024 * 1024)]);
+  const { statusCode } = await callUpload("leader@trip.example", {
+    email: "mia@example.com", data: big.toString("base64"),
+  });
+  assert.equal(statusCode, 413);
+  assert.equal(sent.fileUpload, undefined);
+});
+
+test("a missing files scope is explained", async () => {
+  stubFetch({ fileUploadStatus: 403 });
+  const { statusCode, body } = await callUpload("leader@trip.example", {
+    email: "mia@example.com", data: JPEG.toString("base64"),
+  });
+  assert.equal(statusCode, 502);
+  assert.match(body.error, /files/);
 });
 
 await run();

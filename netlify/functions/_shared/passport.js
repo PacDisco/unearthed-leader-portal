@@ -46,6 +46,9 @@ export const PASSPORT_PROPS = {
   verified:   "passport_checked",       // single checkbox (bool)
   verifiedBy: "passport_checked_by",    // single-line text — email
   verifiedAt: "passport_checked_at",    // single-line text — ISO timestamp
+  // Set by upload-passport.js when a leader uploads the passport from the
+  // portal: the HubSpot File id. Checked BEFORE the application form.
+  upload:     "passport_upload",        // File (or single-line text) — file id
 };
 
 export const ALL_PASSPORT_PROPS = Object.values(PASSPORT_PROPS);
@@ -100,11 +103,11 @@ export function normaliseName(s) {
 // So both sides are flattened to their parts and compared as multisets. The
 // arbitrary split stops mattering, and every part has to be accounted for.
 //
-// The one allowance: a record holding FEWER parts than the passport (no
-// middle name recorded) still matches, because the contact record often only
-// has room for two fields. A record holding a part the passport does NOT
-// have is a mismatch — that is the Jutz/Kunz case, and it is exactly what
-// has to be caught before a ticket is issued.
+// That set-of-parts comparison now only decides the WORDING. The verdict is
+// stricter (October 2026): the record must hold the passport name verbatim —
+// all given names in the first-name field, the surname in the last-name field
+// — so a missing middle name or a different split is flagged too, and the
+// leader gets a one-click USE THIS to write the passport version.
 export function compareNames({ recordedFirst, recordedLast, passportFirst, passportLast }) {
   const parts = (...vals) => normaliseName(vals.filter(Boolean).join(" "))
     .split(" ").filter(Boolean);
@@ -147,12 +150,32 @@ export function compareNames({ recordedFirst, recordedLast, passportFirst, passp
     return false;
   });
 
+  // Same people, same names? (the lenient, set-of-parts answer above)
+  const sameParts = surnameMissing.length === 0 && unmatchedOnRecord.length === 0;
+
+  // VERBATIM: the record has to carry the name exactly as the passport
+  // prints it — every given name in the first-name field, the whole surname
+  // in the last-name field. A missing middle name or a different first/last
+  // split fails, because the record is what bookings are made from.
+  // Case and accents are still ignored: the machine-readable zone the read
+  // comes from is upper case with accents stripped, so it can't tell
+  // "Zoë" from "ZOE" — insisting on them would flag every correct name.
+  const verbatim = normaliseName(recordedFirst) === given.join(" ")
+    && normaliseName(recordedLast) === surname.join(" ");
+
   return {
     comparable: true,
-    matches: surnameMissing.length === 0 && unmatchedOnRecord.length === 0,
+    matches: verbatim,
+    verbatim,
+    // Why it isn't verbatim, for the wording on screen:
+    //   "different"    — a name part is wrong or missing from the surname
+    //   "not_verbatim" — the same names, but a given name is missing or the
+    //                    first/last split differs from the passport
+    issue: verbatim ? null : (sameParts ? "not_verbatim" : "different"),
+    sameParts,
     surnameMissing,                 // family-name parts the record is missing
     unmatchedOnRecord,              // parts on the record the passport doesn't have
-    missingFromRecord: givenPool,   // given names the record lacks — not a fault
+    missingFromRecord: givenPool,   // given names the record lacks
   };
 }
 
@@ -340,6 +363,8 @@ export function shapePassportState(props = {}, { recordedFirst, recordedLast } =
     // has looked at the document and said the record is right, which outranks
     // anything OCR concluded.
     nameMatches: verified ? true : (comparison.comparable ? comparison.matches : null),
+    // "different" / "not_verbatim" when nameMatches is false (see compareNames).
+    nameIssue: verified || !comparison.comparable ? null : comparison.issue,
     comparable: comparison.comparable,
     // Same rule as the name: a manual check settles it.
     numberVerdict: verified ? NUMBER_VERDICT.MATCH : numberVerdict,

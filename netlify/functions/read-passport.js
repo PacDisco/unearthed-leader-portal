@@ -81,7 +81,17 @@ export async function handler(event) {
     // 1. Locate the passport photo on their application submission.
     if (!process.env.JOTFORM_API_KEY) return json(500, { error: "Jotform is not configured." });
     const submission = await findSubmissionByEmail(email, APPLICATION_FORM_IDS_CSV);
-    const photoUrl = submission.found ? passportPhotoUrl(submission.submission) : null;
+
+    // A passport a leader uploaded through the portal (upload-passport.js)
+    // wins over the application form's: it's newer, and it was usually
+    // uploaded because the form's was missing or unreadable.
+    const staffUpload = await staffUploadedPassport(contact);
+    const photoUrl = staffUpload
+      ? staffUpload.url
+      : (submission.found ? passportPhotoUrl(submission.submission) : null);
+    // The signed URL changes on every request, so the cache key is the file
+    // id rather than the URL.
+    const photoKey = staffUpload ? `hubspot-file:${staffUpload.id}` : photoUrl;
 
     if (!photoUrl) {
       await savePassportState(access.contactId, buildOcrPatch({
@@ -100,7 +110,7 @@ export async function handler(event) {
     }
 
     // 2. Cache check — same photo, already read, and not forced.
-    const hash = crypto.createHash("sha256").update(photoUrl).digest("hex").slice(0, 32);
+    const hash = crypto.createHash("sha256").update(photoKey).digest("hex").slice(0, 32);
     const cachedHash = contact[PASSPORT_PROPS.ocrHash] || "";
     const cachedStatus = contact[PASSPORT_PROPS.ocrStatus] || "";
     // A cache entry only counts if it holds every verdict we now report.
@@ -254,7 +264,11 @@ export async function handler(event) {
       passportExpiry: read.expiry || "",
       // Did the machine-readable zone verify? Drives whether the panel
       // offers a one-click apply, or only shows the value for checking.
-      verified: !!read.verified,
+      // NOT `verified`: that name is the office's "checked manually" tick
+      // (from shapePassportState above), and overwriting it made every clean
+      // read show as "checked by hand", hiding the mismatches and the
+      // USE THIS buttons.
+      mrzVerified: !!read.verified,
       // The reason is surfaced even on a successful read: "the name is from
       // the printed page, the dates couldn't be verified" is exactly what a
       // leader needs to know before trusting a row.
@@ -288,6 +302,25 @@ async function readContact(contactId) {
     return data?.properties || {};
   } catch (_) {
     return {};
+  }
+}
+
+// The passport uploaded from the leader portal, if any: { id, url } with a
+// short-lived signed URL for the private HubSpot file, or null.
+async function staffUploadedPassport(contact) {
+  const id = String(contact?.[PASSPORT_PROPS.upload] || "").split(/[\s,;]+/).find(t => /^\d+$/.test(t));
+  if (!id) return null;
+  try {
+    const res = await fetch(`https://api.hubapi.com/files/v3/files/${id}/signed-url`, { headers: hsHeaders() });
+    if (!res.ok) {
+      console.warn("[read-passport] signed-url failed for uploaded passport", id, res.status);
+      return null;
+    }
+    const data = await res.json();
+    return data?.url ? { id, url: data.url } : null;
+  } catch (err) {
+    console.warn("[read-passport] signed-url threw:", err?.message || err);
+    return null;
   }
 }
 

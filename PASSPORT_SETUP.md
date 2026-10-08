@@ -42,6 +42,10 @@ properties → Create property). Internal names must match exactly.
 | `passport_checked` | Single checkbox | ops |
 | `passport_checked_by` | Single-line text | ops — who ticked it |
 | `passport_checked_at` | Single-line text | ops — ISO timestamp |
+| `passport_upload` | File (or single-line text) | a leader's UPLOAD PASSPORT — the HubSpot file id |
+
+The HubSpot private app also needs the **`files`** scope for UPLOAD PASSPORT
+(Settings → Integrations → Private apps → the portal's app → Scopes).
 
 Text rather than date/datetime for the timestamps on purpose: HubSpot date
 properties reject anything that isn't midnight UTC, which loses the time of day
@@ -119,6 +123,9 @@ the above catch. Add the pattern to `DOB_LABELS` / `EXPIRY_LABELS` in
 
 ## 3b. Verbatim, not interpreted
 
+*(This section is about how the passport is read. For the verbatim rule on
+the name **on record**, see section 4.)*
+
 What the read returns is a **transcription**. The prompt asks for the printed
 fields — which carry accents, full spellings and the holder's own
 capitalisation — and uses the machine-readable zone only when the print is
@@ -175,11 +182,15 @@ The rule now:
   a ticket has to carry the whole family name
 - everything else on the record must be a **given name on the passport** —
   an extra part that isn't is the Jutz/Kunz case
-- given names the record **lacks** are fine; a contact record often has no
-  room for a middle name
 
-So `Jon` against `Jonathan` is still a mismatch, and where the CRM puts the
-first/last split no longer affects the verdict.
+That set-of-parts test now only decides the *wording*. **The verdict is
+verbatim** (October 2026): the record's first-name field must hold every given
+name on the passport, and the last-name field the whole surname. So a missing
+middle name, or "Samuel" / "James Cottle" against SAMUEL JAMES / COTTLE, is
+flagged — as *not exactly as on the passport* rather than as a different name
+— and the panel offers USE THIS (and USE ALL) to write the passport version.
+Case and accents are still ignored: the MRZ is upper case with accents
+stripped, so it can't tell `Zoë` from `ZOE`.
 
 An unread passport is never shown as a mismatch, only as unchecked.
 
@@ -313,6 +324,30 @@ because the form has no value or because the field wasn't read. From a cached
 view the two are indistinguishable, so the cell says **"not compared — re-read
 to check"**. It previously said "not on the passport", which was a claim the
 data didn't support.
+
+## 4b. Uploading a passport from the portal
+
+When there's no passport to check, or the one on file can't be read, the
+panel shows **UPLOAD PASSPORT** (or *UPLOAD A NEW PASSPORT PHOTO*). Only people
+who can edit the roster see the panel — admins and expedition leaders — and
+`upload-passport.js` checks that again server-side.
+
+The file (JPEG, PNG, WebP, GIF or PDF, up to 4MB; large phone photos are
+shrunk in the browser first) is:
+
+1. saved **privately** in HubSpot Files, folder `/portal-passports`,
+2. recorded on the contact's `passport_upload` property, and
+3. attached to the contact as a note, so it shows under the contact's
+   Attachments in HubSpot.
+
+The passport check then reads it straight away. A portal-uploaded passport
+**wins over the application form's**, since it's newer and usually uploaded
+because the form's was missing or unreadable. It isn't written back into the
+Jotform submission, so the Document Uploads list and the group export still
+show only what came through the form.
+
+The type is checked from the file's contents, not its name — an iPhone HEIC
+renamed to `.jpg` is refused with a message saying to export it as JPEG.
 
 ## 5. File types
 
