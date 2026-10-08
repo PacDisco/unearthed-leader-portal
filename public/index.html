@@ -1573,6 +1573,27 @@
     }
 
 
+
+    /* Part-paid schedule rows + their BALANCE line, and the PAYMENTS RECEIVED list. */
+    .payment-row .paid-badge.paid-badge--part { background: #c9a227; }
+    .payment-row .paid-badge.paid-badge--part::before { content: none; }
+    .payment-row.balance .payment-label { color: #a07d12; }
+    .payments-received { margin-top: 28px; }
+    .received-row {
+      display: grid; grid-template-columns: 140px 130px 1fr; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid #efe9da; font-size: 13px; align-items: baseline;
+    }
+    .received-row .received-amount { font-weight: 600; }
+    .received-row .received-date { color: #666; }
+    .received-row .received-note { color: #888; font-size: 12px; overflow-wrap: anywhere; }
+    .received-row.is-refund .received-amount { color: #c0392b; }
+    .received-empty { color: #999; font-size: 13px; padding: 10px 0; }
+    .received-total { text-align: right; font-size: 12px; letter-spacing: 1px; color: #555; padding-top: 12px; }
+    @media (max-width: 600px) {
+      .received-row { grid-template-columns: 1fr 1fr; }
+      .received-row .received-note { grid-column: 1 / -1; }
+    }
+
     .payment-row.paid {
       opacity: 0.92;
     }
@@ -3344,7 +3365,7 @@
     // portalData by portal.js (trip record overrides global record). So we
     // can read them directly from portalData; the get-insurance fallback is
     // only kept as a safety net.
-    const paidPromise = apiFetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(who)}`)
+    const paidPromise = apiFetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(who)}&portalId=${encodeURIComponent((portalData && portalData.hs_object_id) || "")}`)
       .then(r => r.json())
       .catch(err => { console.error("Paid payments fetch error:", err); return { payments: [] }; });
 
@@ -3421,13 +3442,6 @@
       btnHtml = `<a href="${paymentFormUrl}${sep}email=${encodeURIComponent(email)}" target="_blank" class="payment-btn">MAKE A PAYMENT &amp; SEE PAYMENT HISTORY</a>`;
     }
 
-    // Build a map of paid entries keyed by their schedule row index (1..15).
-    const paidByIndex = {};
-    if (paidData && Array.isArray(paidData.payments)) {
-      paidData.payments.forEach(entry => {
-        if (entry && entry.index) paidByIndex[entry.index] = entry;
-      });
-    }
 
     // Processing-fee config. The customer covers the card processing fee on top of
     // the listed installment amount, so what they're actually charged at Stripe is
@@ -3484,7 +3498,95 @@
       return parts.length ? parts.join(" · ") : "Recorded on the deal";
     }
 
-    // Build payment schedule from associated portal object
+    // How everything received applies to the schedule. Worked out server-side
+    // in _shared/payment-schedule.js — the same maths create-checkout-session
+    // charges by — so a row's buttons always ask for exactly what's left on it.
+    // Payments count toward the schedule in order (deposit first); a row that
+    // is only partly covered gets a BALANCE line underneath for the difference.
+    const allocation = (paidData && paidData.allocation) || null;
+    const allocByIndex = {};
+    if (allocation && Array.isArray(allocation.rows)) {
+      allocation.rows.forEach(r => { allocByIndex[r.index] = r; });
+    }
+
+    function paidOnText(iso) {
+      if (!iso) return "";
+      const d = new Date(`${iso}T00:00:00`);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleDateString("en-NZ", { year: "numeric", month: "short", day: "numeric" });
+    }
+
+    function scheduleRowHtml(rowClass, label, dateCell, amountCell) {
+      return `
+        <div class="${rowClass}">
+          <div class="payment-label">${label}</div>
+          <div class="payment-date">${dateCell}</div>
+          <div class="payment-amount">${amountCell}</div>
+        </div>
+      `;
+    }
+
+    // The pay options for schedule row i, for `baseNum` (the row's full
+    // amount, or just its balance). The server re-derives the amount itself.
+    function buildPayCell(i, baseNum) {
+      if (readOnly) {
+        return `<span class="payment-amount-money">${fmtMoney(baseNum)}</span>` +
+               `<span class="payment-amount-note">Not yet paid</span>`;
+      }
+      const chargeNum = withProcessingFee(baseNum);
+      let amountCell;
+      // Two payment options per row:
+      //   1. Card with 3% processing fee   (chargeNum = base × 1.03)
+      //   2. Direct debit, no fee          (charges base exactly)
+      // Each is its own clickable button that hits startCheckout()
+      // with a different paymentType, which the backend translates
+      // into different Stripe payment_method_types and amount.
+      const cardChargeText  = fmtMoney(chargeNum);
+      const debitChargeText = fmtMoney(baseNum);
+      const baseText        = fmtMoney(baseNum);
+      const fallbackLink    = buildPaymentLink(i, baseNum, chargeNum);
+      const tripName        = portalData.portal_title || portalData.destination || "Unearthed";
+      const description     = `${tripName} — Payment ${i}`;
+
+      // Inline SVG icons keep the markup self-contained — no extra
+      // assets to hot-link. Both use currentColor so they inherit
+      // whatever text color the button is set to.
+      const cardIcon = `<svg class="payment-amount-icon" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="2" y1="10" x2="22" y2="10" stroke="currentColor" stroke-width="2"/><line x1="6" y1="15" x2="10" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+      const bankIcon = `<svg class="payment-amount-icon" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><polygon points="12,3 22,8 2,8" fill="currentColor"/><rect x="4" y="10" width="2.5" height="8" fill="currentColor"/><rect x="9" y="10" width="2.5" height="8" fill="currentColor"/><rect x="14" y="10" width="2.5" height="8" fill="currentColor"/><rect x="2" y="19" width="20" height="2.2" fill="currentColor"/></svg>`;
+
+      const cardLink = `<a href="${fallbackLink || "#"}"
+            target="_blank" rel="noopener"
+            class="payment-amount-link payment-amount-link--card"
+            title="Pay by card (includes 3% processing fee)"
+            data-payment-index="${i}"
+            data-base-amount="${baseNum}"
+            data-charge-amount="${chargeNum}"
+            data-description="${attrEsc(description)}"
+            data-payment-type="card"
+            onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${cardIcon}<span class="payment-amount-method">CARD</span></span><span class="payment-amount-money">${cardChargeText}</span></a>`;
+
+      // Bank transfer (direct debit) is only offered for currencies that
+      // have a matching Stripe bank-debit method (NZD only), and the region
+      // badge reflects that currency's home region.
+      const debitRegion = bankDebitRegionLabel();
+      const debitLink = currencyHasBankDebit()
+        ? `<a href="${fallbackLink || "#"}"
+            target="_blank" rel="noopener"
+            class="payment-amount-link payment-amount-link--debit"
+            title="Pay by bank transfer (no processing fee)"
+            data-payment-index="${i}"
+            data-base-amount="${baseNum}"
+            data-charge-amount="${baseNum}"
+            data-description="${attrEsc(description)}"
+            data-payment-type="direct_debit"
+            onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${bankIcon}<span class="payment-amount-method">BANK TRANSFER</span><span class="payment-amount-badge">${debitRegion}</span><span class="payment-amount-badge payment-amount-badge--good">NO FEE</span></span><span class="payment-amount-money">${debitChargeText}</span></a>`
+        : "";
+
+      amountCell = `<div class="payment-amount-options">${cardLink}${debitLink}</div>` +
+                   `<span class="payment-amount-note">Base ${baseText} · card +3% fee</span>`;
+      return amountCell;
+    }
+
     const rows = [];
     for (let i = 1; i <= 15; i++) {
       const date = p[`payment_date_${i}`];
@@ -3492,90 +3594,74 @@
       if (!date && !amount) continue;
 
       const formattedDate = formatDateShort(date);
-      const paidEntry = paidByIndex[i] || null;
-
-      const baseNum = amount != null && amount !== "" ? parseFloat(amount) : null;
-      const chargeNum = baseNum != null ? withProcessingFee(baseNum) : null;
-
-      let amountCell;
-      let rowClass = "payment-row";
-
-      if (paidEntry) {
-        // Mark this row paid. Show the actual paid amount + date underneath
-        // the PAID badge; drop the click-to-pay link entirely.
-        rowClass += " paid";
-        amountCell = `<span class="paid-badge">PAID</span>` +
-          `<span class="payment-amount-note">${formatPaidDetail(paidEntry)}</span>`;
-      } else if (chargeNum != null && readOnly) {
-        // Admin viewing as a student: show what's due, but no pay buttons —
-        // an admin shouldn't start a Stripe checkout on a family's behalf.
-        amountCell = `<span class="payment-amount-money">${fmtMoney(baseNum)}</span>` +
-                     `<span class="payment-amount-note">Not yet paid</span>`;
-      } else if (chargeNum != null) {
-        // Two payment options per row:
-        //   1. Card with 3% processing fee   (chargeNum = base × 1.03)
-        //   2. Direct debit, no fee          (charges base exactly)
-        // Each is its own clickable button that hits startCheckout()
-        // with a different paymentType, which the backend translates
-        // into different Stripe payment_method_types and amount.
-        const cardChargeText  = fmtMoney(chargeNum);
-        const debitChargeText = fmtMoney(baseNum);
-        const baseText        = fmtMoney(baseNum);
-        const fallbackLink    = buildPaymentLink(i, baseNum, chargeNum);
-        const tripName        = portalData.portal_title || portalData.destination || "Unearthed";
-        const description     = `${tripName} — Payment ${i}`;
-
-        // Inline SVG icons keep the markup self-contained — no extra
-        // assets to hot-link. Both use currentColor so they inherit
-        // whatever text color the button is set to.
-        const cardIcon = `<svg class="payment-amount-icon" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="2" y1="10" x2="22" y2="10" stroke="currentColor" stroke-width="2"/><line x1="6" y1="15" x2="10" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-        const bankIcon = `<svg class="payment-amount-icon" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><polygon points="12,3 22,8 2,8" fill="currentColor"/><rect x="4" y="10" width="2.5" height="8" fill="currentColor"/><rect x="9" y="10" width="2.5" height="8" fill="currentColor"/><rect x="14" y="10" width="2.5" height="8" fill="currentColor"/><rect x="2" y="19" width="20" height="2.2" fill="currentColor"/></svg>`;
-
-        const cardLink = `<a href="${fallbackLink || "#"}"
-              target="_blank" rel="noopener"
-              class="payment-amount-link payment-amount-link--card"
-              title="Pay by card (includes 3% processing fee)"
-              data-payment-index="${i}"
-              data-base-amount="${baseNum}"
-              data-charge-amount="${chargeNum}"
-              data-description="${attrEsc(description)}"
-              data-payment-type="card"
-              onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${cardIcon}<span class="payment-amount-method">CARD</span></span><span class="payment-amount-money">${cardChargeText}</span></a>`;
-
-        // Bank transfer (direct debit) is only offered for currencies that
-        // have a matching Stripe bank-debit method (NZD only), and the region
-        // badge reflects that currency's home region.
-        const debitRegion = bankDebitRegionLabel();
-        const debitLink = currencyHasBankDebit()
-          ? `<a href="${fallbackLink || "#"}"
-              target="_blank" rel="noopener"
-              class="payment-amount-link payment-amount-link--debit"
-              title="Pay by bank transfer (no processing fee)"
-              data-payment-index="${i}"
-              data-base-amount="${baseNum}"
-              data-charge-amount="${baseNum}"
-              data-description="${attrEsc(description)}"
-              data-payment-type="direct_debit"
-              onclick="return startCheckout(event, this);"><span class="payment-amount-headline">${bankIcon}<span class="payment-amount-method">BANK TRANSFER</span><span class="payment-amount-badge">${debitRegion}</span><span class="payment-amount-badge payment-amount-badge--good">NO FEE</span></span><span class="payment-amount-money">${debitChargeText}</span></a>`
-          : "";
-
-        amountCell = `<div class="payment-amount-options">${cardLink}${debitLink}</div>` +
-                     `<span class="payment-amount-note">Base ${baseText} · card +3% fee</span>`;
-      } else {
-        amountCell = '<span class="tbc">TBC</span>';
-      }
+      const baseRaw = amount != null && amount !== "" ? parseFloat(String(amount).replace(/[^0-9.]/g, "")) : NaN;
+      const baseNum = isFinite(baseRaw) && baseRaw > 0 ? baseRaw : null;
+      const a = allocByIndex[i] || null;
 
       // Row 1 is the deposit — label it as such and don't render a due date.
       const rowLabel = i === 1 ? "DEPOSIT" : `PAYMENT ${i}`;
       const dateCell = i === 1 ? "" : (formattedDate || '<span class="tbc">TBC</span>');
 
-      rows.push(`
-        <div class="${rowClass}">
-          <div class="payment-label">${rowLabel}</div>
-          <div class="payment-date">${dateCell}</div>
-          <div class="payment-amount">${amountCell}</div>
-        </div>
-      `);
+      let rowClass = "payment-row";
+      let amountCell;
+      if (a && a.status === "paid") {
+        rowClass += " paid";
+        const on = paidOnText(a.settledOn);
+        amountCell = `<span class="paid-badge">PAID</span>` +
+          `<span class="payment-amount-note">${fmtMoney(a.due)}${on ? ` · ${on}` : ""}</span>`;
+      } else if (a && a.status === "partial") {
+        rowClass += " part-paid";
+        amountCell = `<span class="paid-badge paid-badge--part">PART PAID</span>` +
+          `<span class="payment-amount-note">${fmtMoney(a.applied)} of ${fmtMoney(a.due)} paid</span>`;
+      } else if (baseNum != null) {
+        amountCell = buildPayCell(i, baseNum);
+      } else {
+        amountCell = '<span class="tbc">TBC</span>';
+      }
+      rows.push(scheduleRowHtml(rowClass, rowLabel, dateCell, amountCell));
+
+      // Part paid → a second line for the difference, payable on its own.
+      if (a && a.status === "partial" && a.remaining > 0) {
+        rows.push(scheduleRowHtml("payment-row balance", `${rowLabel} BALANCE`, dateCell, buildPayCell(i, a.remaining)));
+      }
+    }
+
+    // Paid beyond the whole schedule.
+    if (allocation && allocation.credit > 0.005) {
+      rows.push(scheduleRowHtml("payment-row paid", "CREDIT", "",
+        `<span class="payment-amount-money">${fmtMoney(allocation.credit)}</span>` +
+        `<span class="payment-amount-note">Paid beyond the schedule</span>`));
+    }
+
+    // Every payment on the deal, as recorded — nothing is hidden, even an
+    // entry whose amount couldn't be read.
+    const received = (paidData && Array.isArray(paidData.payments)) ? paidData.payments : [];
+    let receivedHtml = "";
+    if (paidData && paidData.error && !received.length) {
+      receivedHtml = `<div class="payments-received"><div class="payments-schedule-label">PAYMENTS RECEIVED</div>
+        <div class="received-empty">Couldn't load payments received. Refresh to try again.</div></div>`;
+    } else if (received.length) {
+      const totalReceived = allocation
+        ? allocation.totalPaid
+        : received.reduce((s, e) => s + (typeof e.amount === "number" ? e.amount : 0), 0);
+      receivedHtml = `
+        <div class="payments-received">
+          <div class="payments-schedule-label">PAYMENTS RECEIVED</div>
+          ${received.map(e => {
+            const isRefund = typeof e.amount === "number" && e.amount < 0;
+            const amt = typeof e.amount === "number"
+              ? `${isRefund ? "REFUND " : ""}${fmtMoney(Math.abs(e.amount))}`
+              : "Amount unreadable";
+            const when = paidOnText(e.dateIso) || "Date not recorded";
+            const note = typeof e.amount === "number" ? (e.note || "") : (e.raw || "");
+            return `<div class="received-row${isRefund ? " is-refund" : ""}">
+              <div class="received-amount">${amt}</div>
+              <div class="received-date">${attrEsc(when)}</div>
+              <div class="received-note">${attrEsc(note)}</div>
+            </div>`;
+          }).join("")}
+          <div class="received-total">TOTAL RECEIVED <strong>${fmtMoney(totalReceived)}</strong></div>
+        </div>`;
     }
 
     const scheduleHtml = rows.length ? `
@@ -3589,6 +3675,7 @@
       ${infoHtml}
       ${btnHtml}
       ${scheduleHtml}
+      ${receivedHtml}
     `;
   }
 

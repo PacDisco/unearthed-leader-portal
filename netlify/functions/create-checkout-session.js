@@ -42,6 +42,9 @@
 //                                  currencies are card-only.
 
 import { authenticate, isAdmin } from "./_shared/auth.js";
+import {
+  resolvePortalForEmail, loadSchedule, fetchDealPayments, allocateSchedule
+} from "./_shared/payment-schedule.js";
 import { assertEmailAccess } from "./_shared/portal-access.js";
 import {
   normalizeCurrency,
@@ -123,6 +126,8 @@ export async function handler(event) {
     }
 
     let base;
+    // custom | scheduled | balance — recorded on the Stripe metadata.
+    let paymentKind = "custom";
     let programCurrency;
     try {
       const resolved = await resolveScheduledAmount({
@@ -132,6 +137,7 @@ export async function handler(event) {
         admin: isAdmin(session)
       });
       base = resolved.amount;
+      paymentKind = resolved.isBalance ? "balance" : "scheduled";
       // Currency is driven by the program_currency dropdown on the Portal
       // record (falling back to the STRIPE_CURRENCY env, then NZD).
       programCurrency = normalizeCurrency(
@@ -247,6 +253,7 @@ export async function handler(event) {
     // portal schedule on the receiving end (webhooks, dashboard, etc.).
     params.append("metadata[contact_email]", email);
     if (paymentIndex != null) params.append("metadata[payment_index]", String(paymentIndex));
+    params.append("metadata[payment_kind]", paymentKind);
     if (baseAmount != null && baseAmount !== "") {
       params.append("metadata[base_amount]", String(baseAmount));
     }
@@ -266,6 +273,7 @@ export async function handler(event) {
     params.append("payment_intent_data[metadata][contact_email]", email);
     if (paymentIndex != null) {
       params.append("payment_intent_data[metadata][payment_index]", String(paymentIndex));
+      params.append("payment_intent_data[metadata][payment_kind]", paymentKind);
     }
     if (baseAmount != null && baseAmount !== "") {
       params.append("payment_intent_data[metadata][base_amount]", String(baseAmount));
@@ -365,84 +373,29 @@ async function findOrCreateStripeCustomer(email, secretKey) {
 // HubSpot, after verifying the caller is actually associated with the trip.
 // Throws an Error with `.statusCode` on any problem.
 async function resolveScheduledAmount({ email, portalId, index, admin }) {
-  const headers = {
-    Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}`,
-    "Content-Type": "application/json"
-  };
+  // Which trip, and is this person on it? (admins may name any trip)
+  const tripId = await resolvePortalForEmail({ email, portalId, admin });
 
-  // 1. Resolve the contact id.
-  const contactRes = await fetch(
-    "https://api.hubapi.com/crm/v3/objects/contacts/search",
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }],
-        properties: ["email"]
-      })
-    }
-  );
-  if (!contactRes.ok) throw amountError(502, "Could not look up your account.");
-  const contactData = await contactRes.json();
-  const contactId = contactData.results?.[0]?.id;
-  if (!contactId) throw amountError(404, "Account not found.");
-
-  // 2. List the portals this contact is associated with.
-  const assocRes = await fetch(
-    `https://api.hubapi.com/crm/v4/objects/contacts/${contactId}/associations/${PORTAL_OBJECT}`,
-    { headers }
-  );
-  const assoc = assocRes.ok ? await assocRes.json() : { results: [] };
-  const myPortalIds = (assoc.results || []).map(r => String(r.toObjectId)).filter(Boolean);
-
-  // 3. Decide which portal to price against — and make sure the caller is
-  //    entitled to it. Admins may price any portal; everyone else must be
-  //    associated with the one they're paying for.
-  let targetPortalId = portalId;
-  if (admin) {
-    if (!targetPortalId) throw amountError(400, "Missing portalId.");
-  } else if (targetPortalId) {
-    if (!myPortalIds.includes(targetPortalId)) {
-      throw amountError(403, "That trip isn't associated with your account.");
-    }
-  } else if (myPortalIds.length === 1) {
-    targetPortalId = myPortalIds[0];
-  } else {
-    throw amountError(400, "Could not determine which trip to pay for. Please reopen the payment from your trip page.");
-  }
-
-  // 4. Read payment_amount_<index> AND program_currency, falling back to the
-  //    global defaults record for either value if the trip leaves it blank.
-  const prop = `payment_amount_${index}`;
-  const tripRes = await fetch(
-    `https://api.hubapi.com/crm/v3/objects/${PORTAL_OBJECT}/${targetPortalId}?properties=${prop},program_currency`,
-    { headers }
-  );
-  if (!tripRes.ok) throw amountError(502, "Could not read the payment schedule.");
-  const tripData = await tripRes.json();
-  let raw = tripData.properties?.[prop];
-  let currency = tripData.properties?.program_currency;
-
-  if (raw == null || String(raw).trim() === "" ||
-      currency == null || String(currency).trim() === "") {
-    const gRes = await fetch(
-      `https://api.hubapi.com/crm/v3/objects/${PORTAL_OBJECT}/${GLOBAL_PORTAL_ID}?properties=${prop},program_currency`,
-      { headers }
-    );
-    if (gRes.ok) {
-      const g = await gRes.json();
-      if (raw == null || String(raw).trim() === "") raw = g.properties?.[prop];
-      if (currency == null || String(currency).trim() === "") {
-        currency = g.properties?.program_currency;
-      }
-    }
-  }
-
-  const num = parseAmount(raw);
-  if (num == null || num <= 0) {
+  // The whole schedule plus everything already received, run through the
+  // same allocation the Payments tab displays. A part-paid row charges only
+  // its balance; a fully covered row can't be charged again.
+  const [schedule, deal] = await Promise.all([
+    loadSchedule(tripId),
+    fetchDealPayments(email)
+  ]);
+  if (!schedule.rows.some(r => r.index === index)) {
     throw amountError(400, `No scheduled amount is set for payment ${index}.`);
   }
-  return { amount: num, currency: currency || null };
+  const row = allocateSchedule(schedule.rows, deal.payments).rows.find(r => r.index === index);
+  if (!row || row.remaining <= 0.005) {
+    throw amountError(409, `Payment ${index} has already been paid in full.`);
+  }
+  return {
+    amount: row.remaining,
+    due: row.due,
+    isBalance: row.status === "partial",
+    currency: schedule.currency
+  };
 }
 
 // Parse a HubSpot amount field that may contain currency symbols/commas.
