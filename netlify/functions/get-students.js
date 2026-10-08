@@ -1,8 +1,8 @@
 // Lists the students associated to a given portal record, with each
 // student's actual paid totals (read from their associated Deal's
-// payment_1..10 strings) and any associated Parent contacts.
+// payment_1..15 strings) and any associated Parent contacts.
 //
-// Important: payment_1..10 live on the *Deal*, not the Contact. The previous
+// Important: payment_1..15 live on the *Deal*, not the Contact. The previous
 // implementation read those properties off the contact directly and got
 // `undefined` for every student, which meant every card showed
 // "TOTAL PAID: $0 / No payments recorded". This version walks contact →
@@ -339,7 +339,8 @@ async function fetchStudentPayments(contactId, headers) {
   // payment fields and the deal's amount for context.
   const PAYMENT_FIELDS = [
     "payment_1", "payment_2", "payment_3", "payment_4", "payment_5",
-    "payment_6", "payment_7", "payment_8", "payment_9", "payment_10"
+    "payment_6", "payment_7", "payment_8", "payment_9", "payment_10",
+    "payment_11", "payment_12", "payment_13", "payment_14", "payment_15"
   ];
 
   const dealsRes = await fetch(
@@ -370,7 +371,7 @@ async function fetchStudentPayments(contactId, headers) {
 
   let totalPaid = 0;
   const payments = [];
-  for (let i = 1; i <= 10; i++) {
+  for (let i = 1; i <= 15; i++) {
     const raw = deal.properties?.[`payment_${i}`];
     const amount = extractPaymentAmount(raw);
     // Negative amounts are refunds — include them so they show on the card

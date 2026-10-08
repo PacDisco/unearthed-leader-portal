@@ -3421,7 +3421,7 @@
       btnHtml = `<a href="${paymentFormUrl}${sep}email=${encodeURIComponent(email)}" target="_blank" class="payment-btn">MAKE A PAYMENT &amp; SEE PAYMENT HISTORY</a>`;
     }
 
-    // Build a map of paid entries keyed by their schedule row index (1..10).
+    // Build a map of paid entries keyed by their schedule row index (1..15).
     const paidByIndex = {};
     if (paidData && Array.isArray(paidData.payments)) {
       paidData.payments.forEach(entry => {
@@ -3486,7 +3486,7 @@
 
     // Build payment schedule from associated portal object
     const rows = [];
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= 15; i++) {
       const date = p[`payment_date_${i}`];
       const amount = p[`payment_amount_${i}`];
       if (!date && !amount) continue;

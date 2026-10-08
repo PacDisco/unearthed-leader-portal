@@ -273,7 +273,7 @@ export async function handler(event) {
       // Flights
       "flight_departure_date", "departure_airlines", "departure_routing",
       "return_flight_date", "return_flight_airlines", "return_flight_routing",
-      // Payment schedule (1..10)
+      // Payment schedule (1..15)
       "payment_date_1", "payment_amount_1",
       "payment_date_2", "payment_amount_2",
       "payment_date_3", "payment_amount_3",
@@ -284,6 +284,11 @@ export async function handler(event) {
       "payment_date_8", "payment_amount_8",
       "payment_date_9", "payment_amount_9",
       "payment_date_10", "payment_amount_10",
+      "payment_date_11", "payment_amount_11",
+      "payment_date_12", "payment_amount_12",
+      "payment_date_13", "payment_amount_13",
+      "payment_date_14", "payment_amount_14",
+      "payment_date_15", "payment_amount_15",
       // Student/family resources (manuals tab)
       "student_manual", "student_handbook", "gear_list",
       "fundraising_guide", "fitness",

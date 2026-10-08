@@ -1,4 +1,4 @@
-// Returns the parsed payment_1..10 fields off the most recently created Deal
+// Returns the parsed payment_1..15 fields off the most recently created Deal
 // associated with the given contact email, so the portal can mark scheduled
 // installments as paid by sequence (deal.payment_N → schedule row N).
 //
@@ -96,7 +96,8 @@ export async function handler(event) {
     // 3. Batch-read deals — pulling createdate so we can pick the most recent one
     const PAYMENT_FIELDS = [
       "payment_1", "payment_2", "payment_3", "payment_4", "payment_5",
-      "payment_6", "payment_7", "payment_8", "payment_9", "payment_10"
+      "payment_6", "payment_7", "payment_8", "payment_9", "payment_10",
+      "payment_11", "payment_12", "payment_13", "payment_14", "payment_15"
     ];
 
     const dealsRes = await fetch(
@@ -140,9 +141,9 @@ export async function handler(event) {
     });
     const deal = sorted[0];
 
-    // 5. Parse payment_1..10 into structured entries
+    // 5. Parse payment_1..15 into structured entries
     const payments = [];
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= 15; i++) {
       const raw = deal.properties?.[`payment_${i}`];
       const parsed = parsePaymentEntry(raw);
       if (parsed) payments.push({ index: i, ...parsed });

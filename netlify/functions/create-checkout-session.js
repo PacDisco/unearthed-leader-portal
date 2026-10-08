@@ -9,7 +9,7 @@
 // Expected POST body (JSON):
 //   {
 //     email:         "parent@example.com",       // required
-//     paymentIndex:  3,                           // 1..10, optional
+//     paymentIndex:  3,                           // 1..15, optional
 //     baseAmount:    1000.00,                     // listed installment amount
 //     chargeAmount:  1030.00,                     // total to charge for THIS method
 //                                                 //   (caller should pass base for direct debit,
@@ -115,8 +115,8 @@ export async function handler(event) {
     // here. This closes a price-tampering hole where the client could ask
     // to be charged any amount it liked.
     const idx = parseInt(paymentIndex, 10);
-    if (!Number.isInteger(idx) || idx < 1 || idx > 10) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Missing or invalid paymentIndex (must be 1–10)" }) };
+    if (!Number.isInteger(idx) || idx < 1 || idx > 15) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Missing or invalid paymentIndex (must be 1–15)" }) };
     }
     if (!process.env.HUBSPOT_API_KEY) {
       return { statusCode: 500, body: JSON.stringify({ error: "HUBSPOT_API_KEY is not set" }) };
