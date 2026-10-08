@@ -2252,6 +2252,39 @@
   // can't bypass the role check by hand-editing the URL.
   const adminViewing  = isAdminView && !!adminRole;
 
+  // ----- Admin "view as student" -----
+  // In admin view the Payments and Document Uploads tabs would otherwise load
+  // the ADMIN's own data (they key off the logged-in email). The picker in the
+  // admin banner lets the admin choose a student on this trip; those two tabs
+  // then load that student's data, read-only. The server already authorises
+  // admins to read any person (assertEmailAccess), so no backend change.
+  // The choice is remembered per trip for this browser tab.
+  const VIEW_AS_KEY = adminPortalId ? `viewAsStudent:${adminPortalId}` : null;
+  let viewAsStudent = null; // { email, name }
+  if (adminViewing && VIEW_AS_KEY) {
+    try { viewAsStudent = JSON.parse(sessionStorage.getItem(VIEW_AS_KEY) || "null"); } catch (_) { viewAsStudent = null; }
+  }
+  function isViewingAsStudent() {
+    return !!(adminViewing && viewAsStudent && viewAsStudent.email);
+  }
+  // Whose data the student-facing tabs (Payments, Document Uploads) show.
+  function subjectEmail() {
+    return isViewingAsStudent() ? viewAsStudent.email : email;
+  }
+  // Shown in those tabs when an admin hasn't picked a student yet.
+  function adminPickStudentPrompt(what) {
+    return `<div style="text-align:center; padding:30px; font-size:13px; color:#666; letter-spacing:0.5px; line-height:1.6;">
+      Choose a student from <strong>VIEW AS STUDENT</strong> in the admin bar at the top
+      to see their ${what}.
+    </div>`;
+  }
+  function viewAsNotice(what) {
+    const name = attrEsc(viewAsStudent.name || viewAsStudent.email);
+    return `<div style="background:#eef5f6; border:1px solid #2d6b74; color:#2d6b74; border-radius:8px; padding:10px 14px; font-size:12px; letter-spacing:0.5px; margin-bottom:16px;">
+      Viewing <strong>${name}</strong>'s ${what} as an administrator (read-only).
+    </div>`;
+  }
+
   let portalData = {};
 
   // ----- Currency -----
@@ -3302,11 +3335,16 @@
   async function loadPayments() {
     const p = portalData;
 
+    // Admin view: payments belong to a student, so wait for one to be picked.
+    if (adminViewing && !isViewingAsStudent()) return adminPickStudentPrompt("payments");
+    const readOnly = isViewingAsStudent();
+    const who = subjectEmail();
+
     // payment_form_url and payments_information_content are now merged into
     // portalData by portal.js (trip record overrides global record). So we
     // can read them directly from portalData; the get-insurance fallback is
     // only kept as a safety net.
-    const paidPromise = apiFetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(email)}`)
+    const paidPromise = apiFetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(who)}`)
       .then(r => r.json())
       .catch(err => { console.error("Paid payments fetch error:", err); return { payments: [] }; });
 
@@ -3369,7 +3407,11 @@
       infoHtml = `<div class="payments-header">${paymentsInfo}</div>`;
     }
 
-    if (paymentFormUrl) {
+    if (readOnly) {
+      infoHtml = viewAsNotice("payments") + infoHtml;
+    }
+
+    if (paymentFormUrl && !readOnly) {
       // Some payment-form URLs already contain a query string (e.g. a shared
       // Stripe-payment-link or HubSpot-page URL with tracking params). Use
       // "&" as the joiner in that case so we don't produce a malformed URL
@@ -3464,6 +3506,11 @@
         rowClass += " paid";
         amountCell = `<span class="paid-badge">PAID</span>` +
           `<span class="payment-amount-note">${formatPaidDetail(paidEntry)}</span>`;
+      } else if (chargeNum != null && readOnly) {
+        // Admin viewing as a student: show what's due, but no pay buttons —
+        // an admin shouldn't start a Stripe checkout on a family's behalf.
+        amountCell = `<span class="payment-amount-money">${fmtMoney(baseNum)}</span>` +
+                     `<span class="payment-amount-note">Not yet paid</span>`;
       } else if (chargeNum != null) {
         // Two payment options per row:
         //   1. Card with 3% processing fee   (chargeNum = base × 1.03)
@@ -3799,6 +3846,14 @@
     let formTitlesById = {}; // { formId: title }
     let docsError = null;
 
+    // Admin view: documents belong to a student, so wait for one to be picked.
+    if (adminViewing && !isViewingAsStudent()) {
+      content.innerHTML = adminPickStudentPrompt("uploaded documents");
+      return;
+    }
+    const readOnly = isViewingAsStudent();
+    const who = subjectEmail();
+
     try {
       // 1. Get the configured form URL(s). Prefer the trip's portalData
       //    (already merged with the global record via portal.js), fall back
@@ -3820,7 +3875,7 @@
         const ids = formInputs.map(f => f.formId).filter(Boolean).join(",");
         if (ids) {
           const docsRes = await apiFetch(
-            `/.netlify/functions/get-uploaded-documents?email=${encodeURIComponent(email)}&formIds=${encodeURIComponent(ids)}`
+            `/.netlify/functions/get-uploaded-documents?email=${encodeURIComponent(who)}&formIds=${encodeURIComponent(ids)}`
           );
           docsData = await docsRes.json();
           if (docsData.error) docsError = docsData.error;
@@ -3836,7 +3891,7 @@
     }
 
     // 3. Build the page.
-    let html = "";
+    let html = readOnly ? viewAsNotice("uploaded documents") : "";
 
     // a. Uploaded documents list. Pooled across the household, which matters
     //    for a leader who is also a parent on one of these trips — their
@@ -3853,7 +3908,13 @@
     }
     html += `</div>`;
 
-    // b. One section per configured upload form
+    // b. One section per configured upload form. Skipped when an admin is
+    //    viewing as a student — the embedded Jotform would file anything
+    //    submitted under the student's email.
+    if (readOnly) {
+      content.innerHTML = html;
+      return;
+    }
     if (formInputs.length === 0) {
       html += `<div class="docs-section">
         <div class="docs-section-label">UPLOAD A NEW DOCUMENT</div>
@@ -5957,9 +6018,72 @@
     div.innerHTML = `
       <span style="font-weight:600;">ADMIN VIEW</span>
       <span style="opacity:0.85;">You are viewing this trip as an administrator.</span>
+      <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+        VIEW AS STUDENT
+        <select id="viewAsSelect" style="font:inherit; letter-spacing:0; padding:4px 6px; border-radius:6px; border:none; max-width:240px;">
+          <option value="">Loading students…</option>
+        </select>
+      </label>
       <a href="/admin.html" style="margin-left:auto; color:white; text-decoration:underline; font-weight:600;">← BACK TO ADMIN HOME</a>
     `;
+    div.style.flexWrap = "wrap";
     document.body.insertBefore(div, document.body.firstChild);
+    populateViewAsSelect();
+  }
+
+  // Fills the admin banner's VIEW AS STUDENT dropdown from this trip's roster
+  // (get-students — already admin-authorised) and re-renders the Payments /
+  // Document Uploads tab when the choice changes.
+  async function populateViewAsSelect() {
+    const sel = document.getElementById("viewAsSelect");
+    if (!sel) return;
+    let students = [];
+    try {
+      const res = await apiFetch(`/.netlify/functions/get-students?portalId=${encodeURIComponent(adminPortalId)}`);
+      const data = await res.json();
+      students = Array.isArray(data.students) ? data.students : [];
+    } catch (err) {
+      console.error("[viewAs] roster fetch failed:", err);
+    }
+    students = students
+      .filter(s => s && s.email)
+      .sort((a, b) => String(a.name || a.email).localeCompare(String(b.name || b.email)));
+
+    if (students.length === 0) {
+      sel.innerHTML = `<option value="">No students on this trip</option>`;
+      sel.disabled = true;
+      return;
+    }
+
+    sel.innerHTML = `<option value="">— Choose a student —</option>` +
+      students.map(s =>
+        `<option value="${attrEsc(s.email)}">${attrEsc(s.name || s.email)}</option>`
+      ).join("");
+
+    // Restore a remembered choice only if that student is still on the trip.
+    const current = viewAsStudent && students.find(s =>
+      String(s.email).toLowerCase() === String(viewAsStudent.email).toLowerCase());
+    if (current) {
+      sel.value = current.email;
+    } else if (viewAsStudent) {
+      viewAsStudent = null;
+      try { sessionStorage.removeItem(VIEW_AS_KEY); } catch (_) {}
+    }
+
+    sel.addEventListener("change", () => {
+      const picked = students.find(s => s.email === sel.value);
+      viewAsStudent = picked ? { email: picked.email, name: picked.name || "" } : null;
+      try {
+        if (viewAsStudent) sessionStorage.setItem(VIEW_AS_KEY, JSON.stringify(viewAsStudent));
+        else sessionStorage.removeItem(VIEW_AS_KEY);
+      } catch (_) {}
+      // Refresh whichever student-facing tab is open; otherwise jump to Payments.
+      if (__activeSection === "family_information_content") {
+        loadSection("family_information_content");
+      } else {
+        loadSection("travel_information_content");
+      }
+    });
   }
 
   // Loads the qrcode-generator library on demand from jsDelivr (small,
