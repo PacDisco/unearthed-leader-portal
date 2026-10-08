@@ -1,7 +1,7 @@
 // Bump this string any time you ship a release that should bust the
 // install-time cache for previously-installed PWA users. The activate
 // handler below deletes any cache whose name doesn't match.
-const CACHE_NAME = "unearthed-leader-v13-group-csv";
+const CACHE_NAME = "unearthed-leader-v14-payments-passport-tickets";
 const STATIC_FILES = ["/index.html", "/login.html", "/site.webmanifest"];
 
 // ---- Offline data cache (7-day read-only) ---------------------------------
@@ -29,6 +29,7 @@ const CACHEABLE_API = [
   "/.netlify/functions/get-teachers",
   "/.netlify/functions/get-insurance",
   "/.netlify/functions/get-flight-tickets",
+  "/.netlify/functions/get-student-tickets",
   "/.netlify/functions/get-paid-payments",
   "/.netlify/functions/get-uploaded-documents",
   "/.netlify/functions/get-push-config"

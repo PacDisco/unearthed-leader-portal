@@ -15,6 +15,6 @@
     "web-push": "^3.6.7"
   },
   "scripts": {
-    "test": "node test/payment-schedule.test.mjs && node test/uploaded-documents.test.mjs && node test/group-export.test.mjs && node test/leader-roster.test.mjs && node test/roster-edit.test.mjs && node test/passport-check.test.mjs && node test/doc-token.test.mjs && node test/mrz.test.mjs"
+    "test": "node test/student-tickets.test.mjs && node test/payment-schedule.test.mjs && node test/uploaded-documents.test.mjs && node test/group-export.test.mjs && node test/leader-roster.test.mjs && node test/roster-edit.test.mjs && node test/passport-check.test.mjs && node test/doc-token.test.mjs && node test/mrz.test.mjs"
   }
 }

@@ -1321,6 +1321,11 @@
       border-top-color: #aed1db;
     }
 
+    /* A student's uploaded e-tickets — warm accent so it reads as "ready". */
+    .flight-card.tickets {
+      border-top-color: #d6a380;
+    }
+
     .flight-card h4 {
       margin: 0 0 8px;
       font-size: 11px;
@@ -2032,6 +2037,7 @@
     "/.netlify/functions/get-teachers",
     "/.netlify/functions/get-insurance",
     "/.netlify/functions/get-flight-tickets",
+    "/.netlify/functions/get-student-tickets",
     "/.netlify/functions/get-paid-payments",
     "/.netlify/functions/get-uploaded-documents",
     "/.netlify/functions/get-push-config"
@@ -2082,6 +2088,7 @@
       `/.netlify/functions/get-application-data?email=${e}`,
       `/.netlify/functions/get-insurance`,
       `/.netlify/functions/get-paid-payments?email=${e}`,
+      `/.netlify/functions/get-student-tickets?email=${e}`,
       `/.netlify/functions/get-uploaded-documents?email=${e}&formIds=${encodeURIComponent(STUDENT_DOCS_FORM_ID_OFFLINE)}`,
       `/.netlify/functions/get-push-config`
     ];
@@ -3249,12 +3256,70 @@
             ${detail("Routing", p.return_flight_routing)}
           </div>
         </div>
+        <div id="studentTicketsSlot" style="display:contents;"></div>
       </div>
       <div class="insurance-section">
         <div class="insurance-section-label">INSURANCE &amp; VISAS</div>
         <div id="insuranceContent"><span style="font-size:13px; color:#999;">Loading insurance &amp; visa details...</span></div>
       </div>
     `;
+  }
+
+  // Flight e-tickets card on the Flights tab. Shows the tickets of the student
+  // an admin has picked under VIEW AS STUDENT, or the signed-in person's own
+  // (a student/parent; staff rarely have a deal, so the card just stays
+  // hidden for them). The link is the Drive folder on the student's Deal
+  // (`ue_airline_tickets`) — the same one the student portal shows.
+  async function loadStudentTickets() {
+    const slot = document.getElementById("studentTicketsSlot");
+    if (!slot) return;
+
+    const card = (title, date, body, linkHtml) => `
+      <div class="flight-card tickets">
+        <h4>${title}</h4>
+        <div class="flight-date">${date}</div>
+        <div class="readmore-content"><div class="flight-detail">${body}</div></div>
+        ${linkHtml || ""}
+      </div>`;
+
+    if (adminViewing && !isViewingAsStudent()) {
+      slot.innerHTML = card("STUDENT TICKETS", "Choose a student",
+        "Pick a student from <strong>VIEW AS STUDENT</strong> in the admin bar to see their flight e-tickets.");
+      return;
+    }
+
+    const who = subjectEmail();
+    const viewingOther = isViewingAsStudent();
+    const name = viewingOther ? attrEsc(viewAsStudent.name || viewAsStudent.email) : "";
+    try {
+      const res = await apiFetch(`/.netlify/functions/get-student-tickets?email=${encodeURIComponent(who)}`);
+      const data = await res.json().catch(() => ({}));
+      if (who !== subjectEmail()) return; // the picker changed while loading
+      const url = typeof data.url === "string" && /^https:\/\//i.test(data.url) ? data.url : "";
+
+      if (url) {
+        slot.innerHTML = card(
+          viewingOther ? `${name.toUpperCase()}'S TICKETS` : "YOUR TICKETS",
+          "E-tickets ready",
+          viewingOther
+            ? `${name}'s flight tickets have been uploaded. Open the folder to view and download them.`
+            : "Your flight tickets have been uploaded. Open the folder to view and download them.",
+          `<a href="${attrEsc(url)}" target="_blank" rel="noopener" class="flight-link">VIEW &amp; DOWNLOAD</a>`
+        );
+      } else if (viewingOther) {
+        // For an admin, "nothing yet" is an answer worth showing; for anyone
+        // else an empty card would just be noise.
+        slot.innerHTML = card(`${name.toUpperCase()}'S TICKETS`, "Not uploaded yet",
+          data.error ? `Couldn't check: ${attrEsc(data.error)}` : `No flight tickets have been uploaded for ${name} yet.`);
+      } else {
+        slot.innerHTML = "";
+      }
+    } catch (err) {
+      console.error("Student tickets fetch error:", err);
+      if (viewingOther) {
+        slot.innerHTML = card(`${name.toUpperCase()}'S TICKETS`, "Couldn't load", "Couldn't check for tickets just now. Try again in a moment.");
+      }
+    }
   }
 
   // ============================================================
@@ -3810,7 +3875,7 @@
         content.innerHTML = loadFlightsAndInsurance();
         content.style.opacity = 1;
         applyReadMoreClamping(content);
-        await loadInsurance();
+        await Promise.all([loadInsurance(), loadStudentTickets()]);
         return;
       }
 
@@ -6284,6 +6349,8 @@
       // Refresh whichever student-facing tab is open; otherwise jump to Payments.
       if (__activeSection === "family_information_content") {
         loadSection("family_information_content");
+      } else if (__activeSection === "destination_overview_content") {
+        loadSection("destination_overview_content");
       } else {
         loadSection("travel_information_content");
       }
