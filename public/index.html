@@ -3357,17 +3357,22 @@
     const p = portalData;
 
     // Admin view: payments belong to a student, so wait for one to be picked.
-    if (adminViewing && !isViewingAsStudent()) return adminPickStudentPrompt("payments");
-    const readOnly = isViewingAsStudent();
+    // Admin view with no student picked: show the trip's schedule on its own
+    // (amounts and due dates, nothing paid, no pay buttons) with a pointer to
+    // the VIEW AS STUDENT picker. Picking a student layers their payments on.
+    const scheduleOnly = adminViewing && !isViewingAsStudent();
+    const readOnly = adminViewing;
     const who = subjectEmail();
 
     // payment_form_url and payments_information_content are now merged into
     // portalData by portal.js (trip record overrides global record). So we
     // can read them directly from portalData; the get-insurance fallback is
     // only kept as a safety net.
-    const paidPromise = apiFetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(who)}&portalId=${encodeURIComponent((portalData && portalData.hs_object_id) || "")}`)
-      .then(r => r.json())
-      .catch(err => { console.error("Paid payments fetch error:", err); return { payments: [] }; });
+    const paidPromise = scheduleOnly
+      ? Promise.resolve({ payments: [], allocation: null })
+      : apiFetch(`/.netlify/functions/get-paid-payments?email=${encodeURIComponent(who)}&portalId=${encodeURIComponent((portalData && portalData.hs_object_id) || "")}`)
+          .then(r => r.json())
+          .catch(err => { console.error("Paid payments fetch error:", err); return { payments: [] }; });
 
     // Resolve the payment-form URL.
     //
@@ -3428,7 +3433,12 @@
       infoHtml = `<div class="payments-header">${paymentsInfo}</div>`;
     }
 
-    if (readOnly) {
+    if (scheduleOnly) {
+      infoHtml = `<div style="background:#eef5f6; border:1px solid #2d6b74; color:#2d6b74; border-radius:8px; padding:10px 14px; font-size:12px; letter-spacing:0.5px; margin-bottom:16px;">
+        This is the trip's payment schedule. Choose a student from <strong>VIEW AS STUDENT</strong>
+        in the admin bar to see what they've paid.
+      </div>` + infoHtml;
+    } else if (readOnly) {
       infoHtml = viewAsNotice("payments") + infoHtml;
     }
 
@@ -3531,7 +3541,7 @@
     function buildPayCell(i, baseNum) {
       if (readOnly) {
         return `<span class="payment-amount-money">${fmtMoney(baseNum)}</span>` +
-               `<span class="payment-amount-note">Not yet paid</span>`;
+               (scheduleOnly ? "" : `<span class="payment-amount-note">Not yet paid</span>`);
       }
       const chargeNum = withProcessingFee(baseNum);
       let amountCell;
