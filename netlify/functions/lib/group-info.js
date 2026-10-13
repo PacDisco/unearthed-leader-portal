@@ -73,9 +73,15 @@ export const FIELD_MAP = {
     passportNumber:  ["Passport Number"],                                            // confirmed in index.html whitelist
     passportCountry: ["Country of Issue on Passport", "Country of Issue"],           // confirmed
     passportExpiry:  ["Expiry Date", "Passport Expiry Date"],                        // confirmed
+    // On the UE application these two are Yes/No questions; the actual detail
+    // ("vegetarian", "peanut allergy") is in the "If you answered YES ..."
+    // follow-up that comes straight after them. That follow-up label is used
+    // THREE times on the form (medical, health, dietary), so it is found by
+    // position — the first one after the food-allergy question — not by label.
     dietary:         ["Dietary Restrictions or Preferences eg Vegetarian, celiac, gluten free?",
-                      "Dietary Requirements", "Dietary Restrictions or Preferences", "Dietary Req."], // VERIFY
-    foodAllergies:   ["Do you have any food allergies?", "Any food allergies?"], // VERIFY
+                      "Dietary Requirements", "Dietary Restrictions or Preferences", "Dietary Req."], // confirmed on UE form
+    foodAllergies:   ["Do you have any food allergies?", "Any food allergies?"],                    // confirmed on UE form
+    dietaryDetail:   ["If you answered YES to any of the above, please provide more information"],  // confirmed (positional)
   },
 
   // Sheet 2 — Emergency contacts. Jotform emergency-contact questions vary a
@@ -86,12 +92,15 @@ export const FIELD_MAP = {
     // Each contact is { name, phone, role }. We look for numbered / first-second
     // phrasings. Adjust to your form's exact labels.
     contacts: [
-      { name:  ["Emergency Contact Name", "Emergency Contact 1 Name", "Contact Name", "Primary Emergency Contact Name"],   // VERIFY
-        phone: ["Emergency Contact Phone", "Emergency Contact 1 Phone", "Contact Phone", "Primary Emergency Contact Phone"],// VERIFY
-        role:  ["Emergency Contact Relationship", "Emergency Contact 1 Relationship", "Contact Role", "Relationship to Student"] }, // VERIFY
-      { name:  ["Emergency Contact 2 Name", "Second Emergency Contact Name", "Alternate Contact Name"],                     // VERIFY
-        phone: ["Emergency Contact 2 Phone", "Second Emergency Contact Phone", "Alternate Contact Phone"],                  // VERIFY
-        role:  ["Emergency Contact 2 Relationship", "Second Emergency Contact Relationship", "Alternate Contact Role"] },   // VERIFY
+      // Labels confirmed against the live UE application form (251396787451873).
+      { name:  ["Primary Contact Name", "Emergency Contact Name", "Emergency Contact 1 Name", "Contact Name"],
+        phone: ["Primary Contact Phone Number", "Primary Contact Phone", "Emergency Contact Phone", "Emergency Contact 1 Phone", "Contact Phone"],
+        email: ["Primary Contact Email", "Emergency Contact Email", "Emergency Contact 1 Email"],
+        role:  ["Relationship to student", "Emergency Contact Relationship", "Emergency Contact 1 Relationship", "Contact Role"] },
+      { name:  ["Secondary emergency contact name", "Emergency Contact 2 Name", "Second Emergency Contact Name", "Alternate Contact Name"],
+        phone: ["Secondary emergency contact phone number", "Emergency Contact 2 Phone", "Second Emergency Contact Phone", "Alternate Contact Phone"],
+        email: ["Secondary emergency contact email", "Emergency Contact 2 Email"],
+        role:  ["Secondary emergency contact relationship to student", "Emergency Contact 2 Relationship", "Second Emergency Contact Relationship", "Alternate Contact Role"] },
     ],
   },
 
@@ -144,6 +153,24 @@ function fieldValue(fields, candidateLabels) {
   return "";
 }
 
+// The answer to a follow-up question (`labels`) that IMMEDIATELY follows the
+// last of `anchorLabels` in form order. Used for the repeated "If you answered
+// YES ..." follow-up, which can't be told apart by label alone. Only the very
+// next answered field is considered, so an empty dietary follow-up can never
+// pick up another section's explanation instead. (Section headers carry no
+// answer, so they are already absent from `fields`.)
+function fieldAfter(fields, anchorLabels, labels) {
+  if (!Array.isArray(fields)) return "";
+  const anchors = anchorLabels.map(norm);
+  const wanted = labels.map(norm);
+  let anchorIdx = -1;
+  fields.forEach((f, i) => { if (f && anchors.includes(norm(f.label))) anchorIdx = i; });
+  if (anchorIdx < 0) return "";
+  const next = fields[anchorIdx + 1];
+  if (!next || !wanted.includes(norm(next.label))) return "";
+  return String(next.value == null ? "" : next.value).trim();
+}
+
 // Look up a sub-field ("first" / "middle" / "last") of a Jotform full-name
 // answer. get-group-info.js attaches `parts` to those fields when the
 // submission carries them; anything else has no parts and is skipped.
@@ -191,33 +218,58 @@ function motivationRow(person, fields) {
   return row;
 }
 
+// Loose "same person" test between a HubSpot parent and a Jotform contact:
+// same email, same full name, or same first + last word of the name.
+function samePerson(p, j) {
+  const pe = String(p.email || "").toLowerCase().trim();
+  const je = String(j.email || "").toLowerCase().trim();
+  if (pe && je && pe === je) return true;
+  const pn = norm(p.name), jn = norm(j.name);
+  if (!pn || !jn) return false;
+  if (pn === jn) return true;
+  const pw = pn.split(" "), jw = jn.split(" ");
+  return pw.length > 1 && jw.length > 1 && pw[0] === jw[0] && pw[pw.length - 1] === jw[jw.length - 1];
+}
+
 function emergencyRow(index, person, fields) {
   const { first, last } = splitName(person);
 
-  // Emergency contacts are the student's HubSpot *Parent* contacts — that's the
-  // authoritative source for name + phone. The Jotform emergency-contact fields
-  // (if the form has them) are only used to backfill anything the parent record
-  // is missing, and to supply a relationship/role when the parent association
-  // didn't carry one.
-  const parents = Array.isArray(person.parents) ? person.parents : [];
-  const jf = FIELD_MAP.emergency.contacts.map(c => ({
-    name: fieldValue(fields, c.name),
-    phone: fieldValue(fields, c.phone),
-    role: fieldValue(fields, c.role),
-  }));
+  // Two sources: the emergency contacts typed on the application (Primary /
+  // Secondary — name, phone, email, relationship) and the student's HubSpot
+  // Parent contacts. They are merged PER PERSON, never by position: HubSpot
+  // returns parents in no particular order, so pairing parent #1 with Jotform
+  // contact #1 used to put the mother's name next to the father's relationship.
+  // The application's Primary/Secondary order wins; each slot is backfilled
+  // from the matching HubSpot parent (and vice versa), then any HubSpot parent
+  // not on the form fills an empty slot.
+  const parents = (Array.isArray(person.parents) ? person.parents : [])
+    .filter(p => p && (p.name || p.phone));
+  const jf = FIELD_MAP.emergency.contacts
+    .map(c => ({
+      name: fieldValue(fields, c.name),
+      phone: fieldValue(fields, c.phone),
+      email: fieldValue(fields, c.email || []),
+      role: fieldValue(fields, c.role),
+    }))
+    .filter(j => j.name || j.phone);
 
-  const contacts = [0, 1].map(i => {
-    const p = parents[i] || {};
-    const j = jf[i] || {};
+  const used = new Set();
+  const merged = jf.map(j => {
+    const pi = parents.findIndex((p, i) => !used.has(i) && samePerson(p, j));
+    const p = pi >= 0 ? parents[pi] : {};
+    if (pi >= 0) used.add(pi);
     return {
-      name: p.name || j.name || "",
-      phone: p.phone || j.phone || "",
-      // Prefer the parent's own relationship (from the HubSpot association
-      // label / property); fall back to the Jotform relationship field.
-      role: p.role || j.role || "",
+      name: j.name || p.name || "",
+      phone: j.phone || p.phone || "",
+      role: j.role || p.role || "",
     };
   });
+  parents.forEach((p, i) => {
+    if (used.has(i)) return;
+    merged.push({ name: p.name || "", phone: p.phone || "", role: p.role || "" });
+  });
 
+  const contacts = [0, 1].map(i => merged[i] || { name: "", phone: "", role: "" });
   return { index, first, last, contacts };
 }
 
@@ -225,13 +277,19 @@ function medicalRow(index, person, fields) {
   const { first, last } = splitName(person);
   const includeNeg = !!FIELD_MAP.medical.includeNegatives;
 
-  // Pull the actual question/answer pairs from the application, in form order.
+  // Pull the actual question/answer pairs from the application, in FORM
+  // order, keeping every occurrence. "If you answered YES ... more
+  // information" appears once per section (medical, health, dietary); looking
+  // it up by label only ever returned the first, which dropped the health and
+  // dietary explanations.
+  const wanted = new Set(FIELD_MAP.medical.questions.map(norm));
   const items = [];
-  for (const label of FIELD_MAP.medical.questions) {
-    const v = fieldValue(fields, [label]);
+  for (const f of Array.isArray(fields) ? fields : []) {
+    if (!f || !wanted.has(norm(f.label))) continue;
+    const v = String(f.value == null ? "" : f.value).trim();
     if (!v) continue;
     if (!includeNeg && !isAffirmative(v)) continue;
-    items.push({ question: label, answer: v });
+    items.push({ question: f.label, answer: v });
   }
 
   return {
@@ -246,12 +304,25 @@ function medicalRow(index, person, fields) {
 // Age at a given departure date, from a YYYY-MM-DD (or parseable) DOB.
 function ageOnDeparture(dob, departureDate) {
   if (!dob || !departureDate) return "";
-  const b = new Date(dob);
-  const d = new Date(departureDate);
+  // HubSpot date properties arrive as epoch milliseconds; Jotform dates as
+  // YYYY-MM-DD. Both are read as calendar dates in NZ time (where the office
+  // enters departures), so a 6am NZ flight isn't "the day before".
+  const toDate = (v) => {
+    const raw = String(v).trim();
+    if (/^\d{10,}$/.test(raw)) {
+      const ymd = new Date(Number(raw)).toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
+      return new Date(ymd + "T00:00:00Z");
+    }
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+    return new Date(raw);
+  };
+  const b = toDate(dob);
+  const d = toDate(departureDate);
   if (isNaN(b.getTime()) || isNaN(d.getTime())) return "";
-  let age = d.getFullYear() - b.getFullYear();
-  const m = d.getMonth() - b.getMonth();
-  if (m < 0 || (m === 0 && d.getDate() < b.getDate())) age--;
+  let age = d.getUTCFullYear() - b.getUTCFullYear();
+  const m = d.getUTCMonth() - b.getUTCMonth();
+  if (m < 0 || (m === 0 && d.getUTCDate() < b.getUTCDate())) age--;
   return age >= 0 && age < 130 ? String(age) : "";
 }
 
@@ -260,13 +331,25 @@ function travelRow(index, person, fields, departureDate) {
   const t = FIELD_MAP.travel;
   const dob = fieldValue(fields, t.dateOfBirth);
 
-  // Actual dietary requirement, pulled from the application free-text answer,
-  // combined with any food allergies so the column reflects real needs.
-  const dietaryText = fieldValue(fields, t.dietary);
-  const foodAllergy = fieldValue(fields, t.foodAllergies);
-  let dietary = dietaryText;
-  if (isAffirmative(foodAllergy)) {
-    dietary = dietary ? `${dietary}; Food allergies: ${foodAllergy}` : `Food allergies: ${foodAllergy}`;
+  // The dietary and food-allergy questions are Yes/No; the real requirement
+  // is in the follow-up text after them. Show that text (flagging allergies),
+  // "None" when both are No, and the raw answer if the form ever makes the
+  // dietary question free text.
+  const dietaryAns = fieldValue(fields, t.dietary);
+  const allergyAns = fieldValue(fields, t.foodAllergies);
+  const detail = fieldAfter(fields, [...t.foodAllergies, ...t.dietary], t.dietaryDetail);
+  const yesNo = (v) => /^(yes|no)$/i.test(String(v).trim());
+  const dietYes = isAffirmative(dietaryAns);
+  const allergyYes = isAffirmative(allergyAns);
+  let dietary = "";
+  if (dietYes || allergyYes) {
+    const parts = [];
+    if (dietYes && !yesNo(dietaryAns)) parts.push(dietaryAns);       // free-text answer
+    if (detail) parts.push(detail);
+    if (!parts.length) parts.push("Yes \u2014 no details given");
+    dietary = (allergyYes ? "FOOD ALLERGY: " : "") + parts.join("; ");
+  } else if (dietaryAns || allergyAns) {
+    dietary = "None";
   }
 
   return {

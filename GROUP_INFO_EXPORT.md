@@ -146,3 +146,29 @@ Specifically confirm:
 - **XLSX instead of CSV:** the CSV path already proves the shape; swapping in a
   SheetJS export would give one multi-tab workbook with formatting, at the cost
   of a CDN dependency the CSV route avoids.
+
+## Fixes — October 2026 (blank columns in the export)
+
+Checked against the live UE application form (251396787451873):
+
+- **Emergency contacts** — the form's labels are `Primary Contact Name` /
+  `Primary Contact Phone Number` / `Relationship to student` and the
+  `Secondary emergency contact …` equivalents. None of the name/phone/secondary
+  labels were in `FIELD_MAP`, so only the primary relationship came through.
+  Form contacts and HubSpot parents are now merged **per person** (email or
+  name match) instead of by position, so a name can no longer sit next to
+  another parent's relationship. Parent phones read `mobilephone` as well as
+  `phone`, and `control_phone` answers are flattened instead of JSON-stringified.
+- **Dietary** — both dietary questions are Yes/No; the column now shows the
+  "If you answered YES…" follow-up text after them (prefixed `FOOD ALLERGY:`
+  when the allergy question is Yes), or `None`.
+- **Medical** — that follow-up label appears three times on the form; it used
+  to return only the first. All occurrences are now listed in form order.
+- **Age on Departure** — reads the Portal's `flight_departure_date` (epoch ms,
+  interpreted in NZ time).
+- **Date of birth** — `control_birthdate` answers are formatted like dates.
+
+Still blank by design / data:
+- **Gender** — the UE form has no gender question.
+- **Expedition Leaders** — they don't submit the UE application, so they have
+  no passport, DOB, dietary or emergency data to pull.

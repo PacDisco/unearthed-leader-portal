@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { runInThisContext } from "node:vm";
 
 import { assembleGroupInfo } from "../netlify/functions/lib/group-info.js";
-import { middleNameFromProps, nameParts } from "../netlify/functions/get-group-info.js";
+import { middleNameFromProps, nameParts, formatAnswer } from "../netlify/functions/get-group-info.js";
 
 // The two public/ modules are browser scripts (IIFEs that attach to the global),
 // not ES modules, so they are evaluated rather than imported.
@@ -314,6 +314,119 @@ test("the zip is a real archive that unzip can read back", () => {
   const two = readFileSync(join(dir, "pkg", "two.csv"), "utf8");
   assert.ok(two.startsWith("﻿"), "CSVs carry a BOM so Excel reads UTF-8");
   assert.match(two, /Māori, Tāne/, "non-ASCII names survive the round trip");
+});
+
+// --- live UE form labels (emergency / dietary / medical / age) ------------
+
+const f = (label, value, order) => ({ label, value, order });
+const YES_MORE = "If you answered YES to any of the above, please provide more information";
+
+test("emergency contacts read the UE form's Primary/Secondary labels", () => {
+  const data = group({
+    students: [{
+      person: { firstName: "Mia", lastName: "Reynolds", name: "Mia Reynolds", email: "mia@example.com" },
+      fields: [
+        f("Primary Contact Name", "Anna Reynolds"),
+        f("Primary Contact Phone Number", "021 555 0199"),
+        f("Relationship to student", "Mother"),
+        f("Secondary emergency contact name", "Tom Reynolds"),
+        f("Secondary emergency contact phone number", "021 555 0200"),
+        f("Secondary emergency contact relationship to student", "Father"),
+      ],
+    }],
+  });
+  const c = data.emergency.groups[2].rows[0].contacts;
+  assert.deepEqual(c[0], { name: "Anna Reynolds", phone: "021 555 0199", role: "Mother" });
+  assert.deepEqual(c[1], { name: "Tom Reynolds", phone: "021 555 0200", role: "Father" });
+});
+
+test("HubSpot parents merge with form contacts by person, not by position", () => {
+  const data = group({
+    students: [{
+      person: {
+        firstName: "Mia", lastName: "Reynolds", name: "Mia Reynolds", email: "mia@example.com",
+        // HubSpot returns Dad first; the form says Mum is primary.
+        parents: [
+          { name: "Tom Reynolds", phone: "+64 21 000 0002", role: "" },
+          { name: "Anna Reynolds", phone: "+64 21 000 0001", role: "" },
+        ],
+      },
+      fields: [
+        f("Primary Contact Name", "Anna Reynolds"),
+        f("Relationship to student", "Mother"),
+        f("Secondary emergency contact name", "Tom Reynolds"),
+        f("Secondary emergency contact relationship to student", "Father"),
+      ],
+    }],
+  });
+  const c = data.emergency.groups[2].rows[0].contacts;
+  assert.deepEqual(c[0], { name: "Anna Reynolds", phone: "+64 21 000 0001", role: "Mother" });
+  assert.deepEqual(c[1], { name: "Tom Reynolds", phone: "+64 21 000 0002", role: "Father" });
+});
+
+test("dietary column shows the follow-up detail, not the Yes/No", () => {
+  const data = group({
+    students: [
+      { person: { firstName: "A", lastName: "One", name: "A One", email: "a@x.com" },
+        fields: [
+          f("Have you been admitted to hospital in the last 3 years?", "Yes", 30),
+          f(YES_MORE, "Broken arm 2024", 31),
+          f("Dietary Restrictions or Preferences eg Vegetarian, celiac, gluten free?", "Yes", 40),
+          f("Do you have any food allergies?", "Yes", 41),
+          f(YES_MORE, "Vegetarian, peanut allergy (EpiPen)", 42),
+        ] },
+      { person: { firstName: "B", lastName: "Two", name: "B Two", email: "b@x.com" },
+        fields: [
+          f("Dietary Restrictions or Preferences eg Vegetarian, celiac, gluten free?", "No", 40),
+          f("Do you have any food allergies?", "No", 41),
+        ] },
+      { person: { firstName: "C", lastName: "Three", name: "C Three", email: "c@x.com" },
+        fields: [
+          f("Dietary Restrictions or Preferences eg Vegetarian, celiac, gluten free?", "Yes", 40),
+          f("Do you have any food allergies?", "No", 41),
+          f("Passport Number", "LA1", 50),
+        ] },
+    ],
+  });
+  const rows = travelRows(data);
+  assert.equal(rows[0].dietary, "FOOD ALLERGY: Vegetarian, peanut allergy (EpiPen)");
+  assert.equal(rows[1].dietary, "None");
+  assert.equal(rows[2].dietary, "Yes — no details given");
+});
+
+test("medical keeps every 'If you answered YES' follow-up, in form order", () => {
+  const data = group({
+    students: [{
+      person: { firstName: "A", lastName: "One", name: "A One", email: "a@x.com" },
+      fields: [
+        f("Migraines or Headaches?", "Yes", 10),
+        f(YES_MORE, "Occasional migraines", 11),
+        f("Have you been admitted to hospital in the last 3 years?", "Yes", 30),
+        f(YES_MORE, "Appendix 2025", 31),
+      ],
+    }],
+  });
+  const items = data.medical.groups[2].rows[0].items.map(i => i.answer);
+  assert.deepEqual(items, ["Yes", "Occasional migraines", "Yes", "Appendix 2025"]);
+});
+
+test("age on departure works with HubSpot epoch-ms dates", () => {
+  // 2027-03-12 06:30 NZDT = 2027-03-11T17:30Z
+  const dep = String(Date.UTC(2027, 2, 11, 17, 30));
+  const data = group({
+    departureDate: dep,
+    students: [{
+      person: { firstName: "A", lastName: "One", name: "A One", email: "a@x.com" },
+      fields: [f("Date of Birth", "2009-03-12")],
+    }],
+  });
+  assert.equal(travelRows(data)[0].ageOnDeparture, "18", "birthday on NZ departure day counts");
+});
+
+test("Jotform phone and birthdate answers are flattened, not JSON", () => {
+  assert.equal(formatAnswer({ type: "control_phone", answer: { full: "(021) 555-0199" } }), "(021) 555-0199");
+  assert.equal(formatAnswer({ type: "control_phone", answer: { area: "021", phone: "5550199" } }), "021 5550199");
+  assert.equal(formatAnswer({ type: "control_birthdate", answer: { day: "3", month: "7", year: "2009" } }), "2009-07-03");
 });
 
 console.log(`\n${passed} passed${process.exitCode ? " — with failures above" : ""}`);

@@ -118,7 +118,9 @@ function json(statusCode, body) {
 // Portal name + (best-effort) departure date. The departure-date property name
 // is a guess — adjust `DEPARTURE_DATE_PROPS` if your Portal uses another. When
 // none is found, Age on Departure is simply left blank (as in the workbook).
-const DEPARTURE_DATE_PROPS = ["departure_date", "trip_start_date", "start_date", "expedition_start_date"]; // VERIFY
+// `flight_departure_date` is the Portal property the Flights card already
+// reads (portal.js); the rest are kept as fallbacks.
+const DEPARTURE_DATE_PROPS = ["flight_departure_date", "departure_date", "trip_start_date", "start_date", "expedition_start_date"]; // flight_departure_date confirmed
 async function fetchProgram(portalId, headers) {
   try {
     const props = ["name", "trip_name", "portal_name", ...DEPARTURE_DATE_PROPS];
@@ -271,7 +273,9 @@ async function fetchParents(contactId, headers) {
       headers,
       body: JSON.stringify({
         inputs: parentIds.map(id => ({ id: String(id) })),
-        properties: ["firstname", "lastname", "email", "phone", ...RELATIONSHIP_PROPS],
+        // Parents' numbers are usually stored as `mobilephone`, not `phone` —
+        // reading only `phone` is why the guardian phone column came out blank.
+        properties: ["firstname", "lastname", "email", "phone", "mobilephone", ...RELATIONSHIP_PROPS],
       }),
     });
     if (!pr.ok) return [];
@@ -287,7 +291,7 @@ async function fetchParents(contactId, headers) {
       return {
         name: `${props.firstname || ""} ${props.lastname || ""}`.trim(),
         email: props.email || "",
-        phone: props.phone || "",
+        phone: String(props.mobilephone || props.phone || "").trim(),
         role,
       };
     });
@@ -403,7 +407,7 @@ export function nameParts(a) {
   return (parts.first || parts.middle || parts.last) ? parts : null;
 }
 
-function formatAnswer(a) {
+export function formatAnswer(a) {
   const v = a.answer;
   const t = String(a.type || "").toLowerCase();
   if (v == null) return null;
@@ -412,7 +416,15 @@ function formatAnswer(a) {
     if (Array.isArray(v)) return v.filter(Boolean).join(", ");
     return v ? String(v) : "";
   }
-  if (t === "control_datetime" && typeof v === "object") {
+  // Phone questions come back as { full: "..." } or { area, phone } — the
+  // generic fallback below would JSON-stringify them.
+  if (t === "control_phone" && typeof v === "object") {
+    if (v.full) return String(v.full).trim();
+    return [v.country, v.area, v.phone].filter(Boolean).map(s => String(s).trim()).join(" ").trim();
+  }
+  // control_birthdate (Jotform's dedicated Birth Date field) has the same
+  // {day, month, year} shape as a datetime but a different type string.
+  if ((t === "control_datetime" || t === "control_birthdate") && typeof v === "object") {
     const { day, month, year } = v;
     if (day && month && year) return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     return "";
