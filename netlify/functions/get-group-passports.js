@@ -11,11 +11,16 @@
 // through the streaming /document-proxy edge function (no size cap issue) and
 // zips them client-side — see public/group-passports.js.
 //
-// Which file: the same one the passport check reads (read-passport.js) —
-//   1. a passport a leader uploaded from the portal (`passport_upload`
-//      HubSpot file id), else
+// Which files — EVERY passport on file for the person, not just one:
+//   1. passports uploaded with the passport check's UPLOAD PASSPORT button
+//      (`passport_upload` HubSpot file id(s)), and
 //   2. the application form's passport upload (checking widget first, legacy
 //      "Passport Cover Page Photo" second — passportPhotoUrl()).
+//   3. Passports uploaded through the documents form (VIEW DOCUMENTS) are
+//      added by the browser from /get-uploaded-documents, per person — that
+//      endpoint already does the household matching (a parent's upload counts
+//      for their child), and calling it per person keeps this function well
+//      inside Netlify's time limit. See public/group-passports.js.
 //
 // Auth: signed in AND (Teacher/Trip Leader on this trip, or admin) — the same
 // guard as get-group-info.js. Each returned link is a doc token bound to that
@@ -70,14 +75,16 @@ export async function handler(event) {
       for (const person of g.people) {
         idx += 1;
         const index = idx;
-        jobs.push(resolvePassport(person, submissionsByEmail, headers).then(file => ({
+        jobs.push(resolvePassports(person, submissionsByEmail, headers).then(files => ({
           index,
           role: g.role,
           first: person.firstName || "",
           last: person.lastName || "",
           name: person.name || "",
-          source: file ? file.source : null,
-          url: file ? proxyUrl(file.url, auth.session) : null,
+          // Used by the browser to add documents-form passports; the caller
+          // is staff on this trip, who already see roster emails.
+          email: person.email || "",
+          files: files.map(f => ({ source: f.source, url: proxyUrl(f.url, auth.session) })),
         })));
       }
     }
@@ -119,18 +126,21 @@ async function latestSubmissionsByEmail() {
   return out;
 }
 
-// { url, source } for one person's passport file, or null.
-async function resolvePassport(person, submissionsByEmail, headers) {
-  const fileId = String(person.props?.[PASSPORT_PROPS.upload] || "")
-    .split(/[\s,;]+/).find(t => /^\d+$/.test(t));
-  if (fileId) {
-    const url = await hubspotSignedUrl(fileId, headers);
-    if (url) return { url, source: "portal-upload" };
+// Every passport file on record for one person: [{ url, source }], portal
+// uploads first (that's what the passport check reads), then the application.
+async function resolvePassports(person, submissionsByEmail, headers) {
+  const out = [];
+  const ids = String(person.props?.[PASSPORT_PROPS.upload] || "")
+    .split(/[\s,;]+/).filter(t => /^\d+$/.test(t));
+  for (const id of [...new Set(ids)]) {
+    const url = await hubspotSignedUrl(id, headers);
+    if (url) out.push({ url, source: "portal upload" });
   }
   const email = String(person.email || "").toLowerCase().trim();
   const submission = email ? submissionsByEmail.get(email) : null;
   const url = submission ? passportPhotoUrl(submission) : null;
-  return url ? { url, source: "application" } : null;
+  if (url) out.push({ url, source: "application" });
+  return out;
 }
 
 async function hubspotSignedUrl(fileId, headers) {

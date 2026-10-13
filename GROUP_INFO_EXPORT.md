@@ -176,16 +176,29 @@ Still blank by design / data:
 ## Download all passports (ZIP)
 
 A third button on the same card, **DOWNLOAD ALL PASSPORTS (ZIP)**, downloads
-every passport image on the trip as one zip:
-`Passports-<program>.zip` → `Passports-<program>/03 Students - Reynolds, Mia.jpg` …
-numbered and ordered like the group sheets (Expedition Leader → School Leaders
-→ Students). Anyone with no passport on file, or whose file failed to download,
-is listed in `_MISSING-PASSPORTS.txt` inside the zip.
+**every passport file on record** for everyone on the trip, from all three
+places a passport can be uploaded:
+
+1. the passport check's **UPLOAD PASSPORT** button (`passport_upload` on the contact)
+2. the **application form** (checking widget, or the legacy cover-page upload)
+3. the **documents form** behind VIEW DOCUMENTS (261220345497052): any upload
+   whose document name or file name mentions "passport", including ones a
+   parent uploaded for their child (same household matching as VIEW DOCUMENTS)
+
+Files are numbered and ordered like the group sheets. One file →
+`03 Students - Reynolds, Mia.jpg`; several → `… (portal upload).jpg`,
+`… (application).jpg`, `… (document upload).pdf`. The same file reached two
+ways is only included once. Anyone with nothing in the zip is listed in
+`_MISSING-PASSPORTS.txt`.
+
+Limitation: a documents-form upload with a generic name ("Additional file
+upload") and a camera file name (`IMG_1234.jpg`) can't be recognised as a
+passport, so it's left out — the same upload shows untitled in VIEW DOCUMENTS.
 
 | File | What it does |
 |---|---|
-| `netlify/functions/get-group-passports.js` | **new.** Same auth as `get-group-info`. Returns a manifest — one entry per person with a file-bound `/document-proxy` link. File choice matches the passport check: portal upload (`passport_upload`) first, then the application's checking-widget upload, then the legacy "Passport Cover Page Photo". |
-| `public/group-passports.js` | **new.** Fetches each file through `/document-proxy` (3 at a time, progress on the button) and zips them client-side. |
+| `netlify/functions/get-group-passports.js` | **new.** Same auth as `get-group-info`. Returns a manifest — one entry per person with file-bound `/document-proxy` links for their portal upload(s) and application passport. |
+| `public/group-passports.js` | **new.** Adds documents-form passports per person via the existing `get-uploaded-documents`, fetches each file through `/document-proxy` (3 at a time, progress on the button) and zips them client-side. |
 | `public/group-csv.js` | zip writer now also stores binary entries (`{ name, bytes }`). |
 | `netlify/functions/get-group-info.js` | roster loading exported as `loadRoster()` so both downloads list the same people. |
 | `netlify/functions/_shared/passport-widget.js` | `passportPhotoUrl()` moved here from `read-passport.js` so both pick the same file. |

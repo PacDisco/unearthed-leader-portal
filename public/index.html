@@ -3829,6 +3829,8 @@
           apiFetch,
           button: passportsBtn,
           setStatus,
+          // Passports uploaded through VIEW DOCUMENTS are included too.
+          docsFormIds: (typeof STUDENT_DOCS_FORM_ID !== "undefined" ? STUDENT_DOCS_FORM_ID : "261220345497052"),
         }).catch(() => { /* status already shown */ });
       });
     }

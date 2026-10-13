@@ -467,18 +467,28 @@ test("passport files are numbered, role-labelled and typed by content-type", () 
   assert.equal(GroupPassports._extFor("", "/document-proxy?url=https%3A%2F%2Fx.jotform.com%2Fa%2Fscan.jpeg&token=t"), "jpeg");
 });
 
-test("passport zip holds the images byte-for-byte and lists who's missing", () => {
+test("passport zip holds every file byte-for-byte and lists who's missing", () => {
   const jpg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 0xFF, 0xD9]);
+  const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 9, 9]);
   const data = {
     program: { name: "Nepal 2027" },
     people: [
-      { index: 1, role: "Expedition Leader", first: "Sam", last: "Lee", url: null },
-      { index: 2, role: "Students", first: "Zoë", last: "Ngāti", url: "/document-proxy?url=a" },
-      { index: 3, role: "Students", first: "Tom", last: "Ray", url: "/document-proxy?url=b" },
+      { index: 1, role: "Expedition Leader", first: "Sam", last: "Lee", files: [] },
+      { index: 2, role: "Students", first: "Zoë", last: "Ngāti",
+        files: [{ source: "portal upload", url: "/document-proxy?url=a" },
+                { source: "application", url: "/document-proxy?url=b" },
+                { source: "document upload", url: "/document-proxy?url=c.pdf" }] },
+      { index: 3, role: "Students", first: "Tom", last: "Ray", files: [{ source: "application", url: "/document-proxy?url=d" }] },
+      { index: 4, role: "Students", first: "Ana", last: "Kim", files: [{ source: "application", url: "/document-proxy?url=e" }] },
     ],
   };
-  const built = GroupPassports._buildEntries(data, [null, { bytes: jpg, contentType: "image/jpeg" }, { error: "HTTP 502" }]);
-  assert.equal(built.count, 1);
+  const built = GroupPassports._buildEntries(data, [
+    [],
+    [{ bytes: jpg, contentType: "image/jpeg" }, { bytes: jpg, contentType: "image/png" }, { bytes: pdf, contentType: "application/pdf" }],
+    [{ error: "HTTP 502" }],
+    [{ bytes: jpg, contentType: "image/jpeg" }],
+  ]);
+  assert.equal(built.count, 4);
   assert.equal(built.missing.length, 2);
 
   const zip = GroupCsv._zipStore(built.entries, new Date("2026-10-14T00:00:00Z"));
@@ -488,11 +498,30 @@ test("passport zip holds the images byte-for-byte and lists who's missing", () =
   execFileSync("unzip", ["-t", zipPath], { stdio: "pipe" });
   execFileSync("unzip", ["-q", zipPath, "-d", dir], { stdio: "pipe" });
   const folder = join(dir, "Passports-Nepal-2027");
-  assert.deepEqual(readdirSync(folder).sort(), ["02 Students - Ngāti, Zoë.jpg", "_MISSING-PASSPORTS.txt"]);
-  assert.deepEqual(new Uint8Array(readFileSync(join(folder, "02 Students - Ngāti, Zoë.jpg"))), jpg);
+  assert.deepEqual(readdirSync(folder).sort(), [
+    "02 Students - Ngāti, Zoë (application).png",
+    "02 Students - Ngāti, Zoë (document upload).pdf",
+    "02 Students - Ngāti, Zoë (portal upload).jpg",
+    "04 Students - Kim, Ana.jpg",
+    "_MISSING-PASSPORTS.txt",
+  ]);
+  assert.deepEqual(new Uint8Array(readFileSync(join(folder, "02 Students - Ngāti, Zoë (document upload).pdf"))), pdf);
   const missing = readFileSync(join(folder, "_MISSING-PASSPORTS.txt"), "utf8");
   assert.match(missing, /01 Expedition Leader - Lee, Sam — no passport on file/);
   assert.match(missing, /03 Students - Ray, Tom — download failed \(HTTP 502\)/);
+});
+
+test("documents-form passports are added once, other documents ignored", () => {
+  const enc = (u) => "/document-proxy?url=" + encodeURIComponent(u) + "&token=" + Math.random();
+  const person = { files: [{ source: "application", url: enc("https://www.jotform.com/uploads/x/pp.jpg") }] };
+  const files = GroupPassports._mergeDocuments(person, [
+    { fieldLabel: "Passport", filename: "IMG_1.jpg", url: enc("https://www.jotform.com/uploads/y/IMG_1.jpg") },
+    { fieldLabel: null, filename: "passport-scan.pdf", url: enc("https://www.jotform.com/uploads/y/passport-scan.pdf") },
+    { fieldLabel: "Medical form", filename: "med.pdf", url: enc("https://www.jotform.com/uploads/y/med.pdf") },
+    // Same file as the application's — a different token, but not zipped twice.
+    { fieldLabel: "Passport", filename: "pp.jpg", url: enc("https://www.jotform.com/uploads/x/pp.jpg") },
+  ]);
+  assert.deepEqual(files.map(f => f.source), ["application", "document upload", "document upload"]);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? " — with failures above" : ""}`);
