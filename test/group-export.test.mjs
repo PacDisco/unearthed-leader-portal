@@ -430,6 +430,33 @@ test("Jotform phone and birthdate answers are flattened, not JSON", () => {
   assert.equal(formatAnswer({ type: "control_birthdate", answer: { day: "3", month: "7", year: "2009" } }), "2009-07-03");
 });
 
+// --- names after the passport check's USE THIS -----------------------------
+
+test("after a passport name is applied, given names aren't printed twice", () => {
+  const data = group({
+    students: [{
+      // USE THIS wrote all given names to firstname and cleared the form's middle.
+      person: { firstName: "Mia Grace", lastName: "Reynolds", name: "Mia Grace Reynolds",
+                email: "mia@example.com", middleName: "Mia Grace" /* stale CRM fallback */ },
+      fields: [fullNameField(PASSPORT_LABEL, { first: "Mia Grace", middle: "", last: "Reynolds" })],
+    }],
+  });
+  const r = travelRows(data)[0];
+  assert.deepEqual([r.first, r.middle, r.last], ["Mia Grace", "", "Reynolds"]);
+});
+
+test("before an apply, form given names missing from First become Middle", () => {
+  const data = group({
+    students: [
+      { person: { firstName: "Mia", lastName: "Reynolds", name: "Mia Reynolds", email: "a@x.com" },
+        fields: [fullNameField(PASSPORT_LABEL, { first: "Mia Grace", middle: "", last: "Reynolds" })] },
+      { person: { firstName: "Mia", lastName: "Reynolds", name: "Mia Reynolds", email: "b@x.com" },
+        fields: [fullNameField(PASSPORT_LABEL, { first: "Mia", middle: "Grace Louise", last: "Reynolds" })] },
+    ],
+  });
+  assert.deepEqual(travelRows(data).map(r => r.middle), ["Grace", "Grace Louise"]);
+});
+
 // --- passport zip ------------------------------------------------------------
 
 test("passport files are numbered, role-labelled and typed by content-type", () => {

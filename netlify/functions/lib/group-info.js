@@ -186,15 +186,38 @@ function namePart(fields, candidateLabels, part) {
   return "";
 }
 
-// Middle name(s) for the passenger sheet, in order of authority:
-//   1. the `middle` sub-field of the passport-name question (matches the ticket)
+// Middle name(s) for the passenger sheet = the given names on record that are
+// NOT already in the First Name column, so First + Middle always reads as the
+// full set of given names exactly once.
+//
+// WHY "not already in First": the passport check's USE THIS writes the
+// passport's given names VERBATIM into HubSpot `firstname` ("Mia Grace") and
+// the form's name first-subfield, and clears the middle subfield. Taking the
+// middle name from a separate source after that printed the given names twice
+// (First "Mia Grace", Middle "Mia Grace"). Before an apply, a form that holds
+// first "Mia" + middle "Grace" still gives Middle "Grace".
+//
+// Source, in order of authority:
+//   1. the passport-name question on the form (first + middle subfields) —
+//      authoritative whenever the submission has it, even if middle is blank
 //   2. a standalone "Middle Name" question on the form
 //   3. the HubSpot contact fallback resolved in get-group-info.js
 function middleName(person, fields) {
   const t = FIELD_MAP.travel;
-  return namePart(fields, t.passportName, "middle")
-    || fieldValue(fields, t.middleName)
-    || String((person && person.middleName) || "").trim();
+  const firstOnRecord = splitName(person || {}).first;
+  const lastOnRecord = splitName(person || {}).last;
+  const taken = new Set(norm(`${firstOnRecord} ${lastOnRecord}`).split(" ").filter(Boolean));
+  const remainder = (given) => String(given || "").trim().split(/\s+/)
+    .filter(w => w && !taken.has(norm(w))).join(" ");
+
+  const passportField = Array.isArray(fields) && fields.find(f =>
+    f && f.parts && t.passportName.map(norm).includes(norm(f.label)));
+  if (passportField) {
+    return remainder(`${passportField.parts.first || ""} ${passportField.parts.middle || ""}`);
+  }
+  const standalone = fieldValue(fields, t.middleName);
+  if (standalone) return remainder(standalone);
+  return remainder((person && person.middleName) || "");
 }
 
 // Split a "First Last" style name; prefer HubSpot first/last when present.
