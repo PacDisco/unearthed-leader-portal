@@ -172,3 +172,25 @@ Still blank by design / data:
 - **Gender** — the UE form has no gender question.
 - **Expedition Leaders** — they don't submit the UE application, so they have
   no passport, DOB, dietary or emergency data to pull.
+
+## Download all passports (ZIP)
+
+A third button on the same card, **DOWNLOAD ALL PASSPORTS (ZIP)**, downloads
+every passport image on the trip as one zip:
+`Passports-<program>.zip` → `Passports-<program>/03 Students - Reynolds, Mia.jpg` …
+numbered and ordered like the group sheets (Expedition Leader → School Leaders
+→ Students). Anyone with no passport on file, or whose file failed to download,
+is listed in `_MISSING-PASSPORTS.txt` inside the zip.
+
+| File | What it does |
+|---|---|
+| `netlify/functions/get-group-passports.js` | **new.** Same auth as `get-group-info`. Returns a manifest — one entry per person with a file-bound `/document-proxy` link. File choice matches the passport check: portal upload (`passport_upload`) first, then the application's checking-widget upload, then the legacy "Passport Cover Page Photo". |
+| `public/group-passports.js` | **new.** Fetches each file through `/document-proxy` (3 at a time, progress on the button) and zips them client-side. |
+| `public/group-csv.js` | zip writer now also stores binary entries (`{ name, bytes }`). |
+| `netlify/functions/get-group-info.js` | roster loading exported as `loadRoster()` so both downloads list the same people. |
+| `netlify/functions/_shared/passport-widget.js` | `passportPhotoUrl()` moved here from `read-passport.js` so both pick the same file. |
+
+Why the zip is built in the browser: a Netlify function response is capped at
+~6MB, and one phone photo of a passport can be 3–5MB. The streaming
+`/document-proxy` edge function has no such problem, so the function only
+returns links. Files are stored as-is (HEIC and PDF scans included).

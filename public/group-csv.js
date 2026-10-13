@@ -170,12 +170,14 @@
     };
   }
 
-  // files = [{ name, text }] -> Uint8Array of a valid .zip (no compression).
+  // files = [{ name, text } | { name, bytes }] -> Uint8Array of a valid .zip
+  // (no compression). `bytes` (a Uint8Array) is stored as-is: the passport
+  // download (group-passports.js) uses it for images and PDFs.
   function zipStore(files, when) {
     var dt = dosDateTime(when);
     var entries = (files || []).map(function (f) {
       // A UTF-8 BOM makes Excel on Windows read accented names correctly.
-      var bytes = utf8("﻿" + esc(f.text));
+      var bytes = f.bytes instanceof Uint8Array ? f.bytes : utf8("﻿" + esc(f.text));
       return { nameBytes: utf8(esc(f.name)), bytes: bytes, crc: crc32(bytes) };
     });
 

@@ -31,7 +31,7 @@ import { findSubmissionByEmail } from "./lib/jotform.js";
 import { parseMrzWithRepair } from "./_shared/mrz.js";
 import { rotateImage } from "./_shared/image-rotate.js";
 import { largestImageFromPdf } from "./_shared/pdf-image.js";
-import { isPassportDriveUrl, fetchPassportDriveFile } from "./_shared/passport-widget.js";
+import { isPassportDriveUrl, fetchPassportDriveFile, passportPhotoUrl } from "./_shared/passport-widget.js";
 import {
   PASSPORT_STATUS, PASSPORT_PROPS, ALL_PASSPORT_PROPS, NUMBER_VERDICT, DATE_VERDICT,
   buildOcrPatch, shapePassportState, compareDocumentNumbers, compareDates,
@@ -345,29 +345,8 @@ async function savePassportState(contactId, properties) {
   }
 }
 
-// The passport image on the application submission: a file upload whose label
-// mentions passport. Two shapes exist (see _shared/passport-widget.js):
-//   - "Passport photo page" — the checking widget, a Shared Drive link,
-//     normalised to a one-file upload when the submission was fetched
-//   - "Passport Cover Page Photo" — the old Jotform upload, still holding the
-//     file for every submission made before the widget went in
-// When both are answered (an old submission later edited), the widget's file
-// wins: it's the newer upload and the one that passed the bio-page check.
-function passportPhotoUrl(submission) {
-  const answers = submission?.answers || {};
-  let fallback = null;
-  for (const key of Object.keys(answers)) {
-    const a = answers[key] || {};
-    if (String(a.type || "").toLowerCase() !== "control_fileupload") continue;
-    if (!/passport/i.test(String(a.text || a.name || ""))) continue;
-    const v = a.answer;
-    const url = Array.isArray(v) && v.length ? String(v[0]) : (typeof v === "string" && v ? v : null);
-    if (!url) continue;
-    if (isPassportDriveUrl(url)) return url;
-    if (!fallback) fallback = url;
-  }
-  return fallback;
-}
+// passportPhotoUrl() lives in _shared/passport-widget.js — shared with the
+// group passport download so both pick the same file.
 
 // Question labels for the two dates, kept in step with FIELD_MAP.travel in
 // lib/group-info.js so the export and this check read the same questions.

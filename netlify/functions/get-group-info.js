@@ -28,12 +28,12 @@ import { normalizePassportWidget } from "./_shared/passport-widget.js";
 import { authenticate } from "./_shared/auth.js";
 import { assertPortalAccess } from "./_shared/portal-access.js";
 import { assembleGroupInfo } from "./lib/group-info.js";
+import { APPLICATION_FORM_IDS } from "./_shared/application-forms.js";
 
 const PORTAL_OBJECT = "2-58156993";
 
-const DEFAULT_FORM_IDS = (process.env.JOTFORM_APPLICATION_FORM_ID
-  || "251396787451873,253477140703050,260388618557066,250747665126866")
-  .split(",").map(s => s.trim()).filter(Boolean);
+// Same list read-passport.js resolves applications from.
+const DEFAULT_FORM_IDS = APPLICATION_FORM_IDS;
 
 export async function handler(event) {
   try {
@@ -60,33 +60,10 @@ export async function handler(event) {
     // 1. Program name (for the PDF header) + optional departure date.
     const program = await fetchProgram(portalId, headers);
 
-    // 2. All associated contacts, bucketed by association label.
-    const assocRes = await fetch(
-      `https://api.hubapi.com/crm/v4/objects/${PORTAL_OBJECT}/${portalId}/associations/contacts`,
-      { headers }
-    );
-    if (!assocRes.ok) {
-      console.error("[get-group-info] associations fetch failed:",
-        (await assocRes.text().catch(() => "")).slice(0, 300));
-      return json(500, { error: "Portal contact associations fetch failed" });
-    }
-    const assoc = await assocRes.json();
-    const rows = assoc.results || [];
-
-    const idsWith = (label) => rows
-      .filter(r => r.associationTypes?.some(t => String(t.label || "").trim() === label))
-      .map(r => r.toObjectId);
-
-    const studentIds = idsWith("Student");
-    const teacherIds = idsWith("Teacher");        // School Leaders
-    const tripLeaderIds = idsWith("Trip Leader"); // Expedition Leaders
-
-    // 3. Batch-read contact properties for each bucket (parallel).
-    const [students, schoolLeaders, expeditionLeaders] = await Promise.all([
-      readContacts(studentIds, headers, true),
-      readContacts(teacherIds, headers, false),
-      readContacts(tripLeaderIds, headers, false),
-    ]);
+    // 2–3. Roster: associated contacts bucketed by label, properties read.
+    const roster = await loadRoster(portalId, headers);
+    if (roster.error) return json(500, { error: roster.error });
+    const { students, schoolLeaders, expeditionLeaders } = roster;
 
     // 4. Scan Jotform once, index flattened fields by email.
     const appByEmail = await buildApplicationIndex();
@@ -111,6 +88,42 @@ export async function handler(event) {
 
 // ---------- helpers ----------
 
+// The trip roster, bucketed the same way as the sheets. Shared with
+// get-group-passports.js so both downloads list exactly the same people.
+//   opts.extraProps   — extra contact properties to read on everyone
+//   opts.withParents  — fetch students' Parent contacts (default true)
+// Returns { students, schoolLeaders, expeditionLeaders } or { error }.
+export async function loadRoster(portalId, headers, opts = {}) {
+  const assocRes = await fetch(
+    `https://api.hubapi.com/crm/v4/objects/${PORTAL_OBJECT}/${portalId}/associations/contacts`,
+    { headers }
+  );
+  if (!assocRes.ok) {
+    console.error("[get-group-info] associations fetch failed:",
+      (await assocRes.text().catch(() => "")).slice(0, 300));
+    return { error: "Portal contact associations fetch failed" };
+  }
+  const assoc = await assocRes.json();
+  const rows = assoc.results || [];
+
+  const idsWith = (label) => rows
+    .filter(r => r.associationTypes?.some(t => String(t.label || "").trim() === label))
+    .map(r => r.toObjectId);
+
+  const studentIds = idsWith("Student");
+  const teacherIds = idsWith("Teacher");        // School Leaders
+  const tripLeaderIds = idsWith("Trip Leader"); // Expedition Leaders
+
+  const withParents = opts.withParents !== false;
+  const extraProps = opts.extraProps || [];
+  const [students, schoolLeaders, expeditionLeaders] = await Promise.all([
+    readContacts(studentIds, headers, true, { extraProps, withParents }),
+    readContacts(teacherIds, headers, false, { extraProps }),
+    readContacts(tripLeaderIds, headers, false, { extraProps }),
+  ]);
+  return { students, schoolLeaders, expeditionLeaders };
+}
+
 function json(statusCode, body) {
   return { statusCode, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
@@ -121,7 +134,7 @@ function json(statusCode, body) {
 // `flight_departure_date` is the Portal property the Flights card already
 // reads (portal.js); the rest are kept as fallbacks.
 const DEPARTURE_DATE_PROPS = ["flight_departure_date", "departure_date", "trip_start_date", "start_date", "expedition_start_date"]; // flight_departure_date confirmed
-async function fetchProgram(portalId, headers) {
+export async function fetchProgram(portalId, headers) {
   try {
     const props = ["name", "trip_name", "portal_name", ...DEPARTURE_DATE_PROPS];
     const res = await fetch(
@@ -182,10 +195,10 @@ export function middleNameFromProps(props, firstName, lastName) {
 // Batch-read a bucket of contacts into the `person` shape group-info expects.
 // Students additionally carry ue_student_status (review status) and their
 // associated Parent contacts (emergency-contact fallback).
-async function readContacts(ids, headers, isStudent) {
+async function readContacts(ids, headers, isStudent, { extraProps = [], withParents = true } = {}) {
   if (!ids || ids.length === 0) return [];
 
-  const properties = ["firstname", "lastname", "email", "phone", ...MIDDLE_NAME_PROPS];
+  const properties = ["firstname", "lastname", "email", "phone", ...MIDDLE_NAME_PROPS, ...extraProps];
   if (isStudent) properties.push("ue_student_status");
 
   const res = await fetch("https://api.hubapi.com/crm/v3/objects/contacts/batch/read", {
@@ -215,8 +228,10 @@ async function readContacts(ids, headers, isStudent) {
       // Unset ue_student_status defaults to "Discovery" (matches get-students).
       status: isStudent ? ((p.ue_student_status || "").trim() || "Discovery") : "",
       parents: [],
+      // Raw properties, for callers that asked for extraProps.
+      props: p,
     };
-    if (isStudent) person.parents = await fetchParents(c.id, headers);
+    if (isStudent && withParents) person.parents = await fetchParents(c.id, headers);
     return person;
   }));
 
@@ -329,7 +344,7 @@ async function buildApplicationIndex() {
   return out;
 }
 
-async function fetchAllSubmissions(formId, apiKey, baseUrl) {
+export async function fetchAllSubmissions(formId, apiKey, baseUrl) {
   const list = [];
   let offset = 0;
   const pageSize = 1000;
@@ -348,7 +363,7 @@ async function fetchAllSubmissions(formId, apiKey, baseUrl) {
   return list;
 }
 
-function submissionEmail(submission) {
+export function submissionEmail(submission) {
   const answers = submission?.answers || {};
   for (const k of Object.keys(answers)) {
     const a = answers[k];

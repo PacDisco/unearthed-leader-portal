@@ -2003,6 +2003,7 @@
 
 <script src="/group-pdf.js"></script>
 <script src="/group-csv.js"></script>
+<script src="/group-passports.js"></script>
 <script>
   // Auth keys that must survive the app being fully closed (PWA reopened days
   // later, possibly offline). sessionStorage is wiped on close, so the login
@@ -3767,11 +3768,13 @@
         <div style="font-size:12px; color:#666; margin-bottom:12px;">
           Motivations, emergency contacts, medical details and travel / passport details for the
           whole team &mdash; Expedition Leader, School Leaders and Students. Download as a single
-          printable PDF, or as spreadsheet-ready CSVs (one per sheet, in a .zip).
+          printable PDF, or as spreadsheet-ready CSVs (one per sheet, in a .zip). Passport photos
+          for everyone can be downloaded together as a .zip.
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:8px;">
           <button id="groupDownloadBtn" class="student-expand-btn" type="button">DOWNLOAD GROUP INFORMATION (PDF)</button>
           <button id="groupDownloadCsvBtn" class="student-expand-btn" type="button">DOWNLOAD AS CSV (ZIP)</button>
+          <button id="groupPassportsBtn" class="student-expand-btn" type="button">DOWNLOAD ALL PASSPORTS (ZIP)</button>
         </div>
         <div id="groupDownloadStatus" style="color:#c0392b; font-size:12px; margin-top:8px;"></div>
       </div>`;
@@ -3780,6 +3783,7 @@
   function wireGroupDownloadButton(container) {
     const btn = container.querySelector("#groupDownloadBtn");
     const csvBtn = container.querySelector("#groupDownloadCsvBtn");
+    const passportsBtn = container.querySelector("#groupPassportsBtn");
     const statusEl = container.querySelector("#groupDownloadStatus");
     const setStatus = (msg) => { if (statusEl) statusEl.textContent = msg || ""; };
     const portalIdNow = () => (portalData && portalData.hs_object_id) || "";
@@ -3811,6 +3815,21 @@
           button: csvBtn,
           setStatus,
         });
+      });
+    }
+
+    if (passportsBtn) {
+      passportsBtn.addEventListener("click", () => {
+        if (!window.GroupPassports || typeof window.GroupPassports.downloadAllPassports !== "function") {
+          setStatus("Passport module failed to load. Please refresh and try again.");
+          return;
+        }
+        window.GroupPassports.downloadAllPassports({
+          portalId: portalIdNow(),
+          apiFetch,
+          button: passportsBtn,
+          setStatus,
+        }).catch(() => { /* status already shown */ });
       });
     }
   }

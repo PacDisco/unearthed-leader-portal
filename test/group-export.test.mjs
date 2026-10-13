@@ -29,6 +29,7 @@ function loadBrowserScript(relPath, globalName) {
 }
 const GroupCsv = loadBrowserScript("public/group-csv.js", "GroupCsv");
 const GroupPdf = loadBrowserScript("public/group-pdf.js", "GroupPdf");
+const GroupPassports = loadBrowserScript("public/group-passports.js", "GroupPassports");
 
 let passed = 0;
 function test(name, fn) {
@@ -427,6 +428,44 @@ test("Jotform phone and birthdate answers are flattened, not JSON", () => {
   assert.equal(formatAnswer({ type: "control_phone", answer: { full: "(021) 555-0199" } }), "(021) 555-0199");
   assert.equal(formatAnswer({ type: "control_phone", answer: { area: "021", phone: "5550199" } }), "021 5550199");
   assert.equal(formatAnswer({ type: "control_birthdate", answer: { day: "3", month: "7", year: "2009" } }), "2009-07-03");
+});
+
+// --- passport zip ------------------------------------------------------------
+
+test("passport files are numbered, role-labelled and typed by content-type", () => {
+  const p = { index: 3, role: "Students", first: "Mia", last: "Reynolds", url: "/document-proxy?url=x" };
+  assert.equal(GroupPassports._fileBase(p), "03 Students - Reynolds, Mia");
+  assert.equal(GroupPassports._extFor("image/png", p.url), "png");
+  assert.equal(GroupPassports._extFor("application/pdf; charset=binary", p.url), "pdf");
+  assert.equal(GroupPassports._extFor("", "/document-proxy?url=https%3A%2F%2Fx.jotform.com%2Fa%2Fscan.jpeg&token=t"), "jpeg");
+});
+
+test("passport zip holds the images byte-for-byte and lists who's missing", () => {
+  const jpg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 0xFF, 0xD9]);
+  const data = {
+    program: { name: "Nepal 2027" },
+    people: [
+      { index: 1, role: "Expedition Leader", first: "Sam", last: "Lee", url: null },
+      { index: 2, role: "Students", first: "Zoë", last: "Ngāti", url: "/document-proxy?url=a" },
+      { index: 3, role: "Students", first: "Tom", last: "Ray", url: "/document-proxy?url=b" },
+    ],
+  };
+  const built = GroupPassports._buildEntries(data, [null, { bytes: jpg, contentType: "image/jpeg" }, { error: "HTTP 502" }]);
+  assert.equal(built.count, 1);
+  assert.equal(built.missing.length, 2);
+
+  const zip = GroupCsv._zipStore(built.entries, new Date("2026-10-14T00:00:00Z"));
+  const dir = mkdtempSync(join(tmpdir(), "passport-zip-"));
+  const zipPath = join(dir, "p.zip");
+  writeFileSync(zipPath, Buffer.from(zip));
+  execFileSync("unzip", ["-t", zipPath], { stdio: "pipe" });
+  execFileSync("unzip", ["-q", zipPath, "-d", dir], { stdio: "pipe" });
+  const folder = join(dir, "Passports-Nepal-2027");
+  assert.deepEqual(readdirSync(folder).sort(), ["02 Students - Ngāti, Zoë.jpg", "_MISSING-PASSPORTS.txt"]);
+  assert.deepEqual(new Uint8Array(readFileSync(join(folder, "02 Students - Ngāti, Zoë.jpg"))), jpg);
+  const missing = readFileSync(join(folder, "_MISSING-PASSPORTS.txt"), "utf8");
+  assert.match(missing, /01 Expedition Leader - Lee, Sam — no passport on file/);
+  assert.match(missing, /03 Students - Ray, Tom — download failed \(HTTP 502\)/);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? " — with failures above" : ""}`);
