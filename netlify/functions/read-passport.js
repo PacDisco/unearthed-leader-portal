@@ -424,6 +424,7 @@ async function fetchDocument(url) {
   }
 
   let target = url;
+  let fetchOpts = {};
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();
@@ -433,9 +434,13 @@ async function fetchDocument(url) {
       parsed.searchParams.set("apiKey", process.env.JOTFORM_API_KEY);
       target = parsed.toString();
     }
+    // Passports uploaded on the Unearthed application site need the service key.
+    const isApply = (process.env.APPLY_FILE_HOSTS || "apply.unearthededucation.org")
+      .split(",").map((h) => h.trim().toLowerCase()).filter(Boolean).includes(host);
+    if (isApply) fetchOpts = { headers: { "x-apply-key": process.env.APPLY_SERVICE_KEY || "" } };
   } catch (_) { /* use as-is */ }
 
-  const res = await fetch(target);
+  const res = await fetch(target, fetchOpts);
   if (!res.ok) throw new FetchProblem("download", `passport file fetch ${res.status}`);
 
   const contentType = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();

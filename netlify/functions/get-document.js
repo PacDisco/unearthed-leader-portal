@@ -54,15 +54,22 @@ export async function handler(event) {
       host === "jotform.com" || host.endsWith(".jotform.com") ||
       host === "jotfor.ms"   || host.endsWith(".jotfor.ms")
     );
-    if (!isJotform) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Only Jotform URLs are allowed" }) };
+    // Files uploaded on the Unearthed application site (apply.unearthededucation.org)
+    // are fetched with the shared service key (APPLY_SERVICE_KEY), never exposed.
+    const isApply = (process.env.APPLY_FILE_HOSTS || "apply.unearthededucation.org")
+      .split(",").map((h) => h.trim().toLowerCase()).filter(Boolean).includes(host);
+    if (!isJotform && !isApply) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Only Jotform or application-site URLs are allowed" }) };
     }
 
     // Append the API key so Jotform releases the file for download. This
     // happens server-side; the parent never sees it.
-    target.searchParams.set("apiKey", process.env.JOTFORM_API_KEY);
+    if (isJotform) target.searchParams.set("apiKey", process.env.JOTFORM_API_KEY);
 
-    const upstream = await fetch(target.toString(), { redirect: "follow" });
+    const upstream = await fetch(target.toString(), {
+      redirect: "follow",
+      ...(isApply ? { headers: { "x-apply-key": process.env.APPLY_SERVICE_KEY || "" } } : {})
+    });
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => "");
       // Log to Netlify function logs so we can diagnose why a particular

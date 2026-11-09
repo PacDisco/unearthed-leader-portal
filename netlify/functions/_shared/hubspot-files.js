@@ -149,7 +149,11 @@ export function wrapIfJotform(url) {
     host === "jotform.com" || host.endsWith(".jotform.com") ||
     host === "jotfor.ms"   || host.endsWith(".jotfor.ms")
   );
-  return isJotform
+  // Files uploaded on the Unearthed application site (apply.unearthededucation.org)
+  // are fetched with the shared service key (APPLY_SERVICE_KEY), never exposed.
+  const isApply = (process.env.APPLY_FILE_HOSTS || "apply.unearthededucation.org")
+    .split(",").map((h) => h.trim().toLowerCase()).filter(Boolean).includes(host);
+  return (isJotform || isApply)
     ? `/document-proxy?url=${encodeURIComponent(finalUrl)}`
     : finalUrl;
 }

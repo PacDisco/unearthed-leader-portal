@@ -107,7 +107,11 @@ export default async (request, context) => {
     host === "hubspot.com" ||
     /\.hubapi\.com$/i.test(host)
   );
-  if (!isJotform && !isHubSpotCdn) {
+  // Files uploaded on the Unearthed application site (apply.unearthededucation.org)
+  // are fetched with the shared service key (APPLY_SERVICE_KEY), never exposed.
+  const isApply = (Netlify.env.get("APPLY_FILE_HOSTS") || "apply.unearthededucation.org")
+    .split(",").map((h) => h.trim().toLowerCase()).filter(Boolean).includes(host);
+  if (!isJotform && !isHubSpotCdn && !isApply) {
     return jsonResponse({
       error: "Only Jotform or HubSpot URLs are allowed",
       host
@@ -129,7 +133,10 @@ export default async (request, context) => {
 
   let upstream;
   try {
-    upstream = await fetch(parsed.toString(), { redirect: "follow" });
+    upstream = await fetch(parsed.toString(), {
+      redirect: "follow",
+      ...(isApply ? { headers: { "x-apply-key": Netlify.env.get("APPLY_SERVICE_KEY") || "" } } : {})
+    });
   } catch (err) {
     console.error(`[document-proxy] fetch threw for ${parsed.host}${parsed.pathname}:`, err?.message || err);
     return jsonResponse({ error: "Upstream fetch failed", details: String(err?.message || err) }, 502);
