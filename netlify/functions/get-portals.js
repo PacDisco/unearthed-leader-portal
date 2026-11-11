@@ -21,6 +21,49 @@ import { authenticateAdmin } from "./_shared/auth.js";
 
 const PORTAL_OBJECT_ID = "2-58156993";
 const GLOBAL_PORTAL_ID = "50506535214";
+const PROPS = "portal_title,unearthed_program,destination,price,program_currency,status,flight_departure_date,return_flight_date,hs_createdate,hs_object_id";
+
+const DAY = 24 * 60 * 60 * 1000;
+const isoDay = (v) => {
+  if (!v) return null;
+  const d = new Date(/^\d+$/.test(String(v)) ? Number(v) : v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+};
+
+/**
+ * Where a trip is in its life, for the admin picker's sort / filter and its
+ * Completed folder. Pure (tested).
+ *
+ *   completed  — HubSpot `status` says Completed/Finished/Cancelled, or the
+ *                return flight date has passed (from the day after), or —
+ *                with no return date — 30 days after departure, or — with no
+ *                dates at all — the year in its name is before this year.
+ *   in progress — departed, not yet returned.
+ *   upcoming   — departure date ahead.
+ *   no dates   — nothing to go on yet (shown with the upcoming trips).
+ */
+export function describePortal(props = {}, { now = new Date() } = {}) {
+  const today = now.toISOString().slice(0, 10);
+  const start = isoDay(props.flight_departure_date);
+  const end = isoDay(props.return_flight_date);
+  const name = props.unearthed_program || props.portal_title || "";
+  const yearM = /\b(20\d\d)\b/.exec(`${name} ${props.destination || ""} ${props.portal_title || ""}`);
+  const year = start ? Number(start.slice(0, 4)) : yearM ? Number(yearM[1]) : null;
+  const status = String(props.status || "").trim();
+  let phase;
+  if (/cancel/i.test(status)) phase = "cancelled";
+  else if (/complete|finish/i.test(status)) phase = "completed";
+  else if (end && end < today) phase = "completed";
+  else if (!end && start && new Date(start).getTime() + 30 * DAY < now.getTime()) phase = "completed";
+  else if (start && start <= today) phase = "in-progress";
+  else if (start) phase = "upcoming";
+  else if (year && year < now.getUTCFullYear()) phase = "completed";
+  else phase = "no-dates";
+  // "Nepal - September 17 - October 9 2026" → "Nepal"; "Cambodia | July 3…" → "Cambodia"
+  const country = String(props.destination || "").split(/\s[-–—|,]\s|,|\|/)[0].replace(/\b20\d\d\b/g, "").replace(/\s+/g, " ").trim()
+    || (/\s[-–—]\s(.+)$/.exec(name)?.[1] || "").replace(/\b20\d\d\b/g, "").trim();
+  return { start, end, year, country, phase, completed: phase === "completed" || phase === "cancelled", status: status || null };
+}
 
 export async function handler(event) {
   try {
@@ -94,7 +137,7 @@ export async function handler(event) {
     for (let page = 0; page < 5; page++) {
       const qs = new URLSearchParams({
         limit: "100",
-        properties: "portal_title,destination,price,program_currency,hs_object_id"
+        properties: PROPS
       });
       if (after) qs.set("after", after);
 
@@ -114,20 +157,25 @@ export async function handler(event) {
       for (const r of listData.results || []) {
         // Skip the global defaults record — it's not a real trip.
         if (String(r.id) === GLOBAL_PORTAL_ID) continue;
+        const p = r.properties || {};
         portals.push({
           id: String(r.id),
-          title: r.properties?.portal_title || "(untitled trip)",
-          destination: r.properties?.destination || "",
-          price: r.properties?.price || null,
-          currency: r.properties?.program_currency || null,
-          associated: associatedIds.has(String(r.id))
+          title: p.portal_title || p.unearthed_program || "(untitled trip)",
+          program: p.unearthed_program || "",
+          destination: p.destination || "",
+          price: p.price || null,
+          currency: p.program_currency || null,
+          createdAt: p.hs_createdate || null,
+          associated: associatedIds.has(String(r.id)),
+          ...describePortal(p),
         });
       }
       after = listData.paging?.next?.after;
       if (!after) break;
     }
 
-    // Sort: associated first, then alphabetical by title.
+    // Default order (the page re-sorts and filters): associated first, then
+    // alphabetical by title.
     portals.sort((a, b) => {
       if (a.associated !== b.associated) return a.associated ? -1 : 1;
       return (a.title || "").localeCompare(b.title || "");

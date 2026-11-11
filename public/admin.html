@@ -136,6 +136,50 @@
       font-size: 13px;
       padding: 16px 0;
     }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 12px;
+      align-items: center;
+      margin: 0 0 22px;
+    }
+    .controls input, .controls select {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 10px;
+      border: 1px solid #d8d3c3;
+      background: white;
+      color: #231f20;
+      min-height: 38px;
+    }
+    .controls input[type=search] { flex: 1 1 220px; min-width: 0; }
+    .controls label.toggle { font-size: 12px; letter-spacing: 0.4px; display: flex; gap: 6px; align-items: center; cursor: pointer; }
+    .controls .count { font-size: 11px; letter-spacing: 1.2px; color: #999; margin-left: auto; }
+    .portal-card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+    .tag { font-size: 10px; letter-spacing: 1px; font-weight: 600; padding: 3px 7px; background: #eef5f6; color: #2d6b74; }
+    .tag.now { background: #2d6b74; color: white; }
+    .tag.tbc { background: #f3efe3; color: #8a7a55; }
+    .tag.done { background: #ecebe6; color: #777; }
+    .tag.cancel { background: #f8e3df; color: #a23b2a; }
+    .tag.mine { background: #fff3e6; color: #a2622a; }
+    .portal-card-dates { font-size: 12px; color: #444; margin: 0 0 8px; }
+    .portal-card.is-done { border-top-color: #b9b5a8; }
+    details.completed { margin-top: 36px; }
+    details.completed > summary {
+      cursor: pointer;
+      list-style: none;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      font-weight: 600;
+      color: #777;
+      padding: 12px 14px;
+      background: white;
+      border: 1px solid #e2decf;
+      margin-bottom: 14px;
+    }
+    details.completed > summary::-webkit-details-marker { display: none; }
+    details.completed > summary::before { content: "\25B8  "; }
+    details.completed[open] > summary::before { content: "\25BE  "; }
     @media (max-width: 600px) {
       header { flex-wrap: wrap; }
       header .who { width: 100%; margin-left: 0; margin-top: 4px; opacity: 0.7; }
@@ -217,45 +261,138 @@
     }
   }
 
+  // ── sort, filter, and the Completed folder ─────────────────────────────
+  // Each trip comes with its phase (in-progress / upcoming / no-dates /
+  // completed / cancelled), dates, year and country from get-portals. Filters
+  // and sort are remembered in this browser only.
+  const PREF_KEY = "adminTripPicker";
+  const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREF_KEY) || "{}"); } catch (_) { return {}; } })();
+  const state = { q: "", sort: prefs.sort || "date", year: prefs.year || "", country: prefs.country || "", mine: !!prefs.mine, all: [] };
+  function savePrefs() {
+    try { localStorage.setItem(PREF_KEY, JSON.stringify({ sort: state.sort, year: state.year, country: state.country, mine: state.mine })); } catch (_) {}
+  }
+
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function fmtDay(iso, withYear) {
+    const [y, m, d] = String(iso).split("-").map(Number);
+    return `${d} ${MONTHS[m - 1]}${withYear ? " " + y : ""}`;
+  }
+  function fmtRange(p) {
+    if (p.start && p.end) {
+      const sameYear = p.start.slice(0, 4) === p.end.slice(0, 4);
+      return `${fmtDay(p.start, !sameYear)} – ${fmtDay(p.end, true)}`;
+    }
+    if (p.start) return `Departs ${fmtDay(p.start, true)}`;
+    return "";
+  }
+  const PHASE_TAG = {
+    "in-progress": ["now", "IN PROGRESS"],
+    "upcoming": ["", "UPCOMING"],
+    "no-dates": ["tbc", "DATES TBC"],
+    "completed": ["done", "COMPLETED"],
+    "cancelled": ["cancel", "CANCELLED"],
+  };
+  const PHASE_ORDER = { "in-progress": 0, "upcoming": 1, "no-dates": 2, "completed": 3, "cancelled": 4 };
+
+  function sorter(kind, completed) {
+    const byTitle = (a, b) => (a.title || "").localeCompare(b.title || "");
+    if (kind === "name") return byTitle;
+    if (kind === "destination") return (a, b) => (a.country || "~").localeCompare(b.country || "~") || byTitle(a, b);
+    if (kind === "created") return (a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")) || byTitle(a, b);
+    // Date: active trips soonest first (in progress, then upcoming, then those
+    // without dates by year); completed trips most recent first.
+    const key = (p) => p.start || (p.year ? `${p.year}-12-31` : "9999");
+    if (completed) return (a, b) => String(b.end || key(b)).localeCompare(String(a.end || key(a))) || byTitle(a, b);
+    return (a, b) => (PHASE_ORDER[a.phase] - PHASE_ORDER[b.phase]) || key(a).localeCompare(key(b)) || byTitle(a, b);
+  }
+
+  function card(p) {
+    const cls = ["portal-card", p.associated ? "" : "is-other", p.completed ? "is-done" : ""].filter(Boolean).join(" ");
+    const price = p.price ? `PRICE: ${fmtPortalPrice(p.price, p.currency)}` : "";
+    const [tagCls, tagText] = PHASE_TAG[p.phase] || ["", ""];
+    const dates = fmtRange(p);
+    return `<a class="${cls}" href="/index.html?portalId=${encodeURIComponent(p.id)}&as_admin=1">
+      <h3 class="portal-card-title">${attrEsc(p.title || "(untitled)")}</h3>
+      <div class="portal-card-meta">${tagText ? `<span class="tag ${tagCls}">${tagText}</span>` : ""}${p.associated ? `<span class="tag mine">YOUR TRIP</span>` : ""}</div>
+      ${dates ? `<div class="portal-card-dates">${attrEsc(dates)}</div>` : ""}
+      ${p.destination ? `<div class="portal-card-destination">${attrEsc(p.destination)}</div>` : ""}
+      ${price ? `<div class="portal-card-price">${attrEsc(price)}</div>` : ""}
+      <div class="portal-card-cta">VIEW &rsaquo;</div>
+    </a>`;
+  }
+
+  function matches(p) {
+    if (state.mine && !p.associated) return false;
+    if (state.year && String(p.year || "") !== state.year) return false;
+    if (state.country && (p.country || "") !== state.country) return false;
+    if (state.q) {
+      const hay = `${p.title} ${p.program} ${p.destination} ${p.country}`.toLowerCase();
+      if (!state.q.toLowerCase().split(/\s+/).every((w) => hay.includes(w))) return false;
+    }
+    return true;
+  }
+
   function renderPortals(portals) {
+    state.all = portals;
     const container = document.getElementById("picker");
+    container.className = "";
     if (!portals.length) {
-      container.className = "";
       container.innerHTML = `<div class="empty">No portals exist yet. Create a Portal record in HubSpot to get started.</div>`;
       return;
     }
-    const yours  = portals.filter(p => p.associated);
-    const others = portals.filter(p => !p.associated);
+    const years = [...new Set(portals.map((p) => p.year).filter(Boolean))].sort();
+    const countries = [...new Set(portals.map((p) => p.country).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    if (state.year && !years.map(String).includes(state.year)) state.year = "";
+    if (state.country && !countries.includes(state.country)) state.country = "";
+    const anyMine = portals.some((p) => p.associated);
+    container.innerHTML = `
+      <div class="controls" role="search">
+        <input type="search" id="fQ" placeholder="Search school, program or destination" aria-label="Search trips">
+        <select id="fSort" aria-label="Sort by">
+          <option value="date">Sort: travel date</option>
+          <option value="name">Sort: name A–Z</option>
+          <option value="destination">Sort: destination</option>
+          <option value="created">Sort: newest added</option>
+        </select>
+        <select id="fYear" aria-label="Year"><option value="">All years</option>${years.map((y) => `<option value="${y}">${y}</option>`).join("")}</select>
+        <select id="fCountry" aria-label="Destination"><option value="">All destinations</option>${countries.map((c) => `<option value="${attrEsc(c)}">${attrEsc(c)}</option>`).join("")}</select>
+        ${anyMine ? `<label class="toggle"><input type="checkbox" id="fMine"> My trips only</label>` : ""}
+        <span class="count" id="fCount"></span>
+      </div>
+      <div id="lists"></div>`;
+    const q = document.getElementById("fQ"); q.value = state.q;
+    const so = document.getElementById("fSort"); so.value = state.sort;
+    const yr = document.getElementById("fYear"); yr.value = state.year;
+    const co = document.getElementById("fCountry"); co.value = state.country;
+    const mi = document.getElementById("fMine"); if (mi) mi.checked = state.mine;
+    q.addEventListener("input", () => { state.q = q.value.trim(); renderLists(); });
+    so.addEventListener("change", () => { state.sort = so.value; savePrefs(); renderLists(); });
+    yr.addEventListener("change", () => { state.year = yr.value; savePrefs(); renderLists(); });
+    co.addEventListener("change", () => { state.country = co.value; savePrefs(); renderLists(); });
+    mi?.addEventListener("change", () => { state.mine = mi.checked; savePrefs(); renderLists(); });
+    renderLists();
+  }
 
-    function card(p) {
-      const cls = p.associated ? "portal-card" : "portal-card is-other";
-      const price = p.price
-        ? `PRICE: ${fmtPortalPrice(p.price, p.currency)}`
-        : "";
-      return `<a class="${cls}" href="/index.html?portalId=${encodeURIComponent(p.id)}&as_admin=1">
-        <h3 class="portal-card-title">${attrEsc(p.title || "(untitled)")}</h3>
-        ${p.destination ? `<div class="portal-card-destination">${attrEsc(p.destination)}</div>` : ""}
-        ${price ? `<div class="portal-card-price">${attrEsc(price)}</div>` : ""}
-        <div class="portal-card-cta">VIEW &rsaquo;</div>
-      </a>`;
+  function renderLists() {
+    const shown = state.all.filter(matches);
+    const active = shown.filter((p) => !p.completed).sort(sorter(state.sort, false));
+    const done = shown.filter((p) => p.completed).sort(sorter(state.sort, true));
+    const box = document.getElementById("lists");
+    const wasOpen = !!document.querySelector("details.completed")?.open;
+    document.getElementById("fCount").textContent = `${active.length} ACTIVE · ${done.length} COMPLETED`;
+    let html = `<section class="picker-section">
+      <div class="picker-section-label">CURRENT &amp; UPCOMING TRIPS</div>
+      ${active.length ? `<div class="portal-grid">${active.map(card).join("")}</div>` : `<div class="empty">No current or upcoming trips match.</div>`}
+    </section>`;
+    if (done.length) {
+      // Open by itself only when a search or filter leaves nothing else to show.
+      const open = wasOpen || (!active.length && (state.q || state.year || state.country || state.mine));
+      html += `<details class="completed"${open ? " open" : ""}>
+        <summary>COMPLETED TRIPS (${done.length})</summary>
+        <div class="portal-grid">${done.map(card).join("")}</div>
+      </details>`;
     }
-
-    let html = "";
-    if (yours.length) {
-      html += `<section class="picker-section">
-        <div class="picker-section-label">YOUR TRIPS</div>
-        <div class="portal-grid">${yours.map(card).join("")}</div>
-      </section>`;
-    }
-    if (others.length) {
-      html += `<section class="picker-section">
-        <div class="picker-section-label">${yours.length ? "OTHER TRIPS" : "ALL TRIPS"}</div>
-        <div class="portal-grid">${others.map(card).join("")}</div>
-      </section>`;
-    }
-
-    container.className = "";
-    container.innerHTML = html;
+    box.innerHTML = html;
   }
 
   async function init() {
