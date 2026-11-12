@@ -21,7 +21,7 @@ import { authenticateAdmin } from "./_shared/auth.js";
 
 const PORTAL_OBJECT_ID = "2-58156993";
 const GLOBAL_PORTAL_ID = "50506535214";
-const PROPS = "portal_title,unearthed_program,destination,price,program_currency,status,flight_departure_date,return_flight_date,hs_createdate,hs_object_id";
+const PROPS = "portal_title,unearthed_program,destination,price,program_currency,status,program_start_date,program_end_date,flight_departure_date,return_flight_date,hs_createdate,hs_object_id";
 
 const DAY = 24 * 60 * 60 * 1000;
 const isoDay = (v) => {
@@ -34,9 +34,12 @@ const isoDay = (v) => {
  * Where a trip is in its life, for the admin picker's sort / filter and its
  * Completed folder. Pure (tested).
  *
+ * Dates: Program Start / End Date first; where one isn't filled in, the
+ * Flight Departure / Return Flight Date stands in for it.
+ *
  *   completed  — HubSpot `status` says Completed/Finished/Cancelled, or the
- *                return flight date has passed (from the day after), or —
- *                with no return date — 30 days after departure, or — with no
+ *                end date has passed (from the day after), or — with no
+ *                end date — 30 days after the start, or — with no
  *                dates at all — the year in its name is before this year.
  *   in progress — departed, not yet returned.
  *   upcoming   — departure date ahead.
@@ -44,8 +47,8 @@ const isoDay = (v) => {
  */
 export function describePortal(props = {}, { now = new Date() } = {}) {
   const today = now.toISOString().slice(0, 10);
-  const start = isoDay(props.flight_departure_date);
-  const end = isoDay(props.return_flight_date);
+  const start = isoDay(props.program_start_date) || isoDay(props.flight_departure_date);
+  const end = isoDay(props.program_end_date) || isoDay(props.return_flight_date);
   const name = props.unearthed_program || props.portal_title || "";
   const yearM = /\b(20\d\d)\b/.exec(`${name} ${props.destination || ""} ${props.portal_title || ""}`);
   const year = start ? Number(start.slice(0, 4)) : yearM ? Number(yearM[1]) : null;

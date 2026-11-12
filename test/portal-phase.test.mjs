@@ -21,6 +21,15 @@ t("no dates: past year in the name → completed, otherwise dates TBC", () => {
   const tbc = d({ unearthed_program: "Hamilton Boys High School - Nepal 2027", destination: "Nepal" });
   assert.equal(tbc.phase, "no-dates"); assert.equal(tbc.year, 2027); assert.equal(tbc.completed, false);
 });
+t("Program Start / End Date first, flight dates as the fallback", () => {
+  const both = d({ program_start_date: "2026-11-20", program_end_date: "2026-12-05", flight_departure_date: "2026-11-01", return_flight_date: "2026-11-10" });
+  assert.equal(both.start, "2026-11-20"); assert.equal(both.end, "2026-12-05"); assert.equal(both.phase, "upcoming");
+  const mixed = d({ program_start_date: "2026-11-01", return_flight_date: "2026-11-09" });
+  assert.equal(mixed.start, "2026-11-01"); assert.equal(mixed.end, "2026-11-09"); assert.equal(mixed.phase, "completed");
+  const flightsOnly = d({ flight_departure_date: "2027-07-03T03:05:00Z", return_flight_date: "2027-07-24T03:55:00Z" });
+  assert.equal(flightsOnly.start, "2027-07-03"); assert.equal(flightsOnly.end, "2027-07-24");
+  assert.equal(d({ program_start_date: "1793491200000" }).start, "2026-11-01", "HubSpot date as epoch ms");
+});
 t("HubSpot status can close a trip", () => {
   assert.equal(d({ status: "Cancelled", flight_departure_date: "2027-01-01" }).phase, "cancelled");
   assert.equal(d({ status: "Completed" }).completed, true);
